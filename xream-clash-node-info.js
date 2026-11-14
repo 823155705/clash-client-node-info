@@ -1,5 +1,5 @@
 /**
- * xream & Kelee Node Suite — ProjectClash/Clash-Client 全能节点检测套件 (v2.0.0)
+ * xream & Kelee Node Suite — ProjectClash/Clash-Client 全能节点检测套件 (v2.2.0)
  *
  * 深度融合：
  * 1. xream/scripts (ip-info / net-lsp-x / ip-whois / ip-score)
@@ -307,8 +307,17 @@
     if (/huawei|华为云/i.test(combined)) return '华为云 BGP';
     if (/ucloud|优刻得/i.test(combined)) return 'UCloud BGP';
     if (/volcengine|bytedance|火山引擎/i.test(combined)) return '火山引擎 BGP';
-    if (/baidu|百度/i.test(combined)) return '百度云';
-    if (/jdcloud|京东/i.test(combined)) return '京东云';
+    if (/kingsoft|ksyun|金山云/i.test(combined)) return '金山云 BGP';
+    if (/qingcloud|青云/i.test(combined)) return '青云 BGP';
+    if (/ctyun|天翼云/i.test(combined)) return '天翼云 BGP';
+    if (/ecloud|移动云/i.test(combined)) return '移动云 BGP';
+    if (/cucloud|联通云/i.test(combined)) return '联通云 BGP';
+    if (/baidu|百度/i.test(combined)) return '百度云 BGP';
+    if (/jdcloud|京东/i.test(combined)) return '京东云 BGP';
+    if (/cloudflare/i.test(combined)) return 'Cloudflare';
+    if (/zenlayer/i.test(combined)) return 'Zenlayer 专网';
+    if (/xtom/i.test(combined)) return 'xTom 专网';
+    if (/misaka/i.test(combined)) return 'Misaka 专网';
     if (String(countryCode || '').toUpperCase() === 'CN') {
       const cn = normalizeCNISP(combined);
       if (cn !== combined.trim()) return '中国' + cn;
@@ -677,11 +686,11 @@
     };
   }
 
-  async function queryPurityIPAPI(ip, targetNode) {
+  async function queryPurityIPAPI(ip, targetNode, timeoutOverride) {
     let url = 'https://api.ipapi.is/?q=' + encodeURIComponent(ip);
     if (CFG.ipapiKey) url += '&key=' + encodeURIComponent(CFG.ipapiKey);
     try {
-      const j = await fetchJSON(buildOutboundOpts(url, targetNode), CFG.timeoutMs);
+      const j = await fetchJSON(buildOutboundOpts(url, targetNode), timeoutOverride || CFG.timeoutMs);
       return parseIPAPIIs(j);
     } catch (e) {
       log('ipapi.is error: ' + (e.message || e));
@@ -1435,6 +1444,45 @@
     return null;
   }
 
+  async function fetchControllerProxyMeta(proxyName) {
+    const name = String(proxyName || '').trim();
+    if (!name) return null;
+    const url =
+      'http://127.0.0.1:' + CFG.controllerPort + '/proxies/' + encodeURIComponent(name);
+    try {
+      const j = await fetchJSON({ url, headers: buildControllerHeaders() }, 1000);
+      if (j && typeof j === 'object') {
+        return {
+          name: String(j.name || name),
+          type: String(j.type || ''),
+          now: String(j.now || ''),
+          dialerProxy: String(j['dialer-proxy'] || ''),
+        };
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  async function resolveLeafProxyMeta(initialName) {
+    let cur = String(initialName || '').trim();
+    if (!cur) return null;
+    const visited = new Set();
+    let lastMeta = null;
+    for (let i = 0; i < 6; i++) {
+      if (!cur || visited.has(cur)) break;
+      visited.add(cur);
+      const meta = await fetchControllerProxyMeta(cur);
+      if (!meta) break;
+      lastMeta = meta;
+      if (meta.now && meta.now !== cur) {
+        cur = meta.now;
+      } else {
+        break;
+      }
+    }
+    return lastMeta;
+  }
+
   async function runProbeWithEntranceCapture(nodeName, captureEnabled, probeFn) {
     if (!captureEnabled || !CFG.showEntrance) {
       const probe = await probeFn();
@@ -1450,8 +1498,10 @@
       const { conn, parsed } = match;
       const chains = Array.isArray(conn.chains) ? conn.chains : [];
       const leafNode = chains.length > 0 ? String(chains[0] || '') : '';
-      const entranceIP =
-        parsed.isIPv4 || parsed.isIPv6 ? parsed.host : await resolveDomainToIP(parsed.host);
+      const [entranceIP, proxyMeta] = await Promise.all([
+        parsed.isIPv4 || parsed.isIPv6 ? Promise.resolve(parsed.host) : resolveDomainToIP(parsed.host),
+        fetchControllerProxyMeta(leafNode || nodeName).catch(() => null),
+      ]);
       const geo = entranceIP ? await queryIPGeoExplicit(entranceIP).catch(() => null) : null;
       return {
         status: 'ok',
@@ -1459,6 +1509,9 @@
         entrancePort: parsed.port,
         entranceIP: entranceIP || '',
         leafNode,
+        chains,
+        dialerProxy: (proxyMeta && proxyMeta.dialerProxy) || '',
+        proxyType: (proxyMeta && proxyMeta.type) || '',
         geo,
       };
     }
@@ -1476,13 +1529,13 @@
     }
 
     const watcherPromise = (async () => {
-      await new Promise((r) => setTimeout(r, 160));
-      if (probeFinished) return;
-      await trySnapshotOnce();
-      if (matchedRecord || probeFinished || controllerStatus !== 'ok') return;
-      await new Promise((r) => setTimeout(r, 380));
-      if (probeFinished) return;
-      await trySnapshotOnce();
+      const delays = [120, 180, 240, 300, 380, 480, 600, 750];
+      for (const waitMs of delays) {
+        await new Promise((r) => setTimeout(r, waitMs));
+        if (matchedRecord || probeFinished) return;
+        await trySnapshotOnce();
+        if (matchedRecord || probeFinished || controllerStatus !== 'ok') return;
+      }
     })();
 
     let probe;
@@ -1502,7 +1555,342 @@
     }
     if (controllerStatus === 'unauthorized') return { probe, entrance: { status: 'unauthorized' } };
     if (controllerStatus === 'unreachable') return { probe, entrance: { status: 'unreachable' } };
-    return { probe, entrance: { status: 'not_found' } };
+
+    // 即使连接在极短时间内已关闭，只要控制器在线也可补充读取节点链式拨号元数据
+    const fallbackMeta =
+      controllerStatus === 'ok' && nodeName ? await resolveLeafProxyMeta(nodeName).catch(() => null) : null;
+    return {
+      probe,
+      entrance: {
+        status: 'not_found',
+        leafNode: (fallbackMeta && fallbackMeta.name) || '',
+        dialerProxy: (fallbackMeta && fallbackMeta.dialerProxy) || '',
+        proxyType: (fallbackMeta && fallbackMeta.type) || '',
+      },
+    };
+  }
+
+  // ============================================================================
+  // 8B. 代理链路类型全场景分类器 & 拓扑构建器
+  // ============================================================================
+
+  function classifyLinkType({ nodeName, nodeInfo, entrance, probe }) {
+    const l = (probe && probe.landing) || {};
+    const cf = (probe && probe.cfTrace) || null;
+    const warpMode =
+      cf && (cf.warp === 'plus' || cf.warp === 'on') ? (cf.warp === 'plus' ? 'WARP+' : 'WARP') : '';
+    const warpSuffix = warpMode ? ' + ' + warpMode : '';
+
+    const landingCC = String(l.countryCode || '').toUpperCase();
+    const landingASN = String(l.asn || '').toUpperCase();
+    const isLandingCF =
+      landingASN === 'AS13335' || /cloudflare/i.test(String(l.isp || '') + ' ' + String(l.org || ''));
+
+    const rawNodeType = String(
+      (nodeInfo && nodeInfo.type) || (entrance && entrance.proxyType) || ''
+    ).toLowerCase();
+    const isRelayGroup = rawNodeType === 'relay';
+    const dialerProxy = String((entrance && entrance.dialerProxy) || '').trim();
+    const chains = (entrance && Array.isArray(entrance.chains) && entrance.chains) || [];
+    const hasNodeLibraryChain =
+      dialerProxy.startsWith('__clash_chain_entry_') ||
+      chains.some((c) => String(c || '').startsWith('__clash_chain_entry_'));
+
+    // 1. 显式客户端链式代理（节点库链式代理 / dialer-proxy 前置转发 / Relay 多跳组）
+    if (hasNodeLibraryChain) {
+      return {
+        code: 'chain-library',
+        badge: '链式代理 · 双跳串联' + warpSuffix,
+        detail: '客户端前置节点 ➔ 远端落地节点',
+        color: COLORS.purple,
+      };
+    }
+    if (dialerProxy && dialerProxy.toUpperCase() !== 'DIRECT') {
+      return {
+        code: 'chain-dialer',
+        badge: '链式代理 · 前置拨号' + warpSuffix,
+        detail: '经前置「' + dialerProxy + '」转发 ➔ 落地',
+        color: COLORS.purple,
+      };
+    }
+    if (isRelayGroup) {
+      return {
+        code: 'chain-relay',
+        badge: '链式代理 · Relay 多跳' + warpSuffix,
+        detail: '多节点顺序串联转发',
+        color: COLORS.purple,
+      };
+    }
+
+    // 2. 已捕获真实拨号入口 IP / 域名：精准判定直连、CDN、专线、BGP、跨国与同区链路
+    if (entrance && entrance.status === 'ok' && (entrance.entranceIP || entrance.entranceHost)) {
+      const entIP = entrance.entranceIP || '';
+      const entHost = entrance.entranceHost || '';
+      const eg = entrance.geo || null;
+      const entCC = String((eg && eg.countryCode) || '').toUpperCase();
+      const entASN = String((eg && eg.asn) || '').toUpperCase();
+      const entISP = String((eg && (eg.ispDisplay || eg.isp || eg.org)) || '').trim();
+      const isDirectIP =
+        Boolean(entIP) &&
+        (entIP === l.ip || Boolean(probe && probe.ipv6 && probe.ipv6.ip && entIP === probe.ipv6.ip));
+      const isEntCF =
+        entASN === 'AS13335' ||
+        /cloudflare/i.test(entISP + ' ' + String((eg && eg.org) || '') + ' ' + entHost);
+
+      // 2A. 局域网 / 旁路由 / Tailscale / ZeroTier 等组网内网网关入口
+      if (eg && eg.isPrivate) {
+        return {
+          code: 'lan-gateway',
+          badge: '内网 / 组网网关中转' + warpSuffix,
+          detail: '局域网或组网网关入口 ➔ 远端落地',
+          color: COLORS.purple,
+        };
+      }
+
+      // 2B. 入口即落地（单跳直连无中转）
+      if (isDirectIP) {
+        if (warpMode) {
+          return {
+            code: 'direct-warp',
+            badge: '直连线路 + ' + warpMode + ' 出站',
+            detail: '入口即节点本身，出站经 CF 托管',
+            color: COLORS.cyan,
+          };
+        }
+        return {
+          code: 'direct',
+          badge: landingCC && landingCC !== 'CN' ? '直连出境线路' : '直连单跳线路',
+          detail: '入口即落地，未经过中转服务器',
+          color: COLORS.cyan,
+        };
+      }
+
+      // 2C. 入口为 Cloudflare Anycast 节点（原生 WARP 隧道 vs CF CDN 优选回源）
+      if (isEntCF) {
+        if (warpMode || isLandingCF) {
+          return {
+            code: 'cf-warp-tunnel',
+            badge: 'Cloudflare ' + (warpMode || 'WARP') + ' 隧道',
+            detail: 'CF Anycast 边缘接入 ➔ 托管落地',
+            color: COLORS.cyan,
+          };
+        }
+        return {
+          code: 'cf-cdn-origin',
+          badge: 'Cloudflare CDN 优选线路',
+          detail: 'CF Anycast 边缘接入 ➔ 源站落地',
+          color: COLORS.primary,
+        };
+      }
+
+      // 2D. 国内大陆入口（CN）中转出境：细分专线 IEPL/IPLC、云厂商多线 BGP、三大运营商公网中转
+      if (entCC === 'CN' && landingCC !== 'CN') {
+        const nameHint = String(nodeName || '') + ' ' + String(entrance.leafNode || '');
+        const isDedicatedHint = /iepl|iplc|专线|内网专线|深港|沪日|沪美|广港|京德|京日|苏日/i.test(nameHint);
+        const isCloudBGP =
+          /BGP|阿里云|腾讯云|华为云|UCloud|火山引擎|金山云|青云|天翼云|移动云|联通云|百度云|京东云|Zenlayer|xTom|Misaka/i.test(
+            entISP
+          );
+
+        if (isDedicatedHint) {
+          return {
+            code: 'cn-dedicated',
+            badge: '跨境专线加速 (IEPL/IPLC)' + warpSuffix,
+            detail: (entISP ? entISP + '入口' : '国内专线入口') + ' ➔ 跨境专线落地',
+            color: COLORS.purple,
+          };
+        }
+        if (isCloudBGP) {
+          return {
+            code: 'cn-bgp-transit',
+            badge: '国内 BGP 专网中转' + warpSuffix,
+            detail: entISP + '入口 ➔ 海外落地',
+            color: COLORS.purple,
+          };
+        }
+        return {
+          code: 'cn-isp-transit',
+          badge: '国内运营商中转加速' + warpSuffix,
+          detail: (entISP ? entISP + '入口' : '国内公网入口') + ' ➔ 海外落地',
+          color: COLORS.purple,
+        };
+      }
+
+      // 2E. 境内同向中转（国内入口 ➔ 国内异地落地）
+      if (entCC === 'CN' && landingCC === 'CN') {
+        return {
+          code: 'cn-internal-transit',
+          badge: '境内内陆中转链路',
+          detail: '国内前置入口 ➔ 国内异地落地',
+          color: COLORS.purple,
+        };
+      }
+
+      // 2F. 海外节点直连接入 + 落地侧套用 Cloudflare WARP 出站（避免误判为机场中转）
+      if (entCC && entCC !== 'CN' && (warpMode || isLandingCF)) {
+        return {
+          code: 'overseas-direct-warp',
+          badge: '直连入口 + ' + (warpMode || 'WARP') + ' 出站',
+          detail: entCC + ' 节点直连 ➔ Cloudflare 托管落地',
+          color: COLORS.cyan,
+        };
+      }
+
+      // 2G. 海外跨国 / 跨地区跳板中转（如 HK/SG/JP 前置 ➔ US/TW/EU 落地）
+      if (entCC && landingCC && entCC !== landingCC) {
+        return {
+          code: 'intl-transit',
+          badge: '海外跨国跳板中转' + warpSuffix,
+          detail: entCC + ' 前置入口 ➔ ' + landingCC + ' 远端落地',
+          color: COLORS.purple,
+        };
+      }
+
+      // 2H. 海外同国家/地区异 IP：区分「同 ASN 多 IP 直出」与「异运营商前置落地链（如 CMI ➔ HKT 家宽）」
+      if (entCC && entCC === landingCC) {
+        if (entASN && landingASN && entASN === landingASN) {
+          return {
+            code: 'same-asn-multi-ip',
+            badge: '同网段多 IP 直出',
+            detail: '出入口同属 ' + landingASN + ' (' + entCC + ')',
+            color: COLORS.cyan,
+          };
+        }
+        return {
+          code: 'same-region-chain',
+          badge: '同区异网中转 / 落地链',
+          detail: entCC + ' 前置入口 ➔ 同区独立运营商落地',
+          color: COLORS.purple,
+        };
+      }
+
+      // 2I. 入口与落地分离（入口 Geo 超时兜底）
+      return {
+        code: 'separated-transit',
+        badge: '中转 / 分离式链路' + warpSuffix,
+        detail: '拨号入口与最终落地 IP 分离',
+        color: COLORS.purple,
+      };
+    }
+
+    // 3. 未捕获到拨号入口时的已知特征与引导兜底（确保任何状态下均显示「链路类型」）
+    if (warpMode) {
+      return {
+        code: 'warp-outbound',
+        badge: 'Cloudflare ' + warpMode + ' 托管出站',
+        detail: !CFG.showEntrance ? '已关闭入口检测' : '配好外部控制器密钥可判别前端直连/中转',
+        color: COLORS.purple,
+      };
+    }
+    if (isLandingCF) {
+      return {
+        code: 'cf-outbound',
+        badge: 'Cloudflare Anycast 出站',
+        detail: !CFG.showEntrance ? '已关闭入口检测' : '配好外部控制器密钥可判别前端直连/中转',
+        color: COLORS.cyan,
+      };
+    }
+    if (!CFG.showEntrance) {
+      return {
+        code: 'outbound-only',
+        badge: '常规代理出站',
+        detail: '已在模块设置关闭中转入口检测',
+        color: COLORS.primary,
+      };
+    }
+    if (entrance && entrance.status === 'unauthorized') {
+      return {
+        code: 'pending-secret',
+        badge: '待识别直连 / 中转',
+        detail: '模块设置填入外部控制器密钥即可判别',
+        color: COLORS.warning,
+      };
+    }
+    if (entrance && entrance.status === 'unreachable') {
+      return {
+        code: 'pending-controller',
+        badge: '待识别直连 / 中转',
+        detail: '开启「外部控制器 → 本机」填密钥可判别',
+        color: COLORS.muted,
+      };
+    }
+    return {
+      code: 'pending-sample',
+      badge: '待识别直连 / 中转',
+      detail: '本次连接采样过快结束，再测一次即可捕获入口',
+      color: COLORS.muted,
+    };
+  }
+
+  function buildTopologyHops({ domestic, entrance, probe }) {
+    const l = (probe && probe.landing) || {};
+    const cf = (probe && probe.cfTrace) || null;
+    const flag = getFlagEmoji(l.countryCode);
+    const htmlHops = [];
+    const plainHops = [];
+
+    if (domestic && domestic.ip) {
+      const dLabel = '🇨🇳 ' + (domestic.shortTag || '本地');
+      htmlHops.push(esc(dLabel));
+      plainHops.push(dLabel);
+    }
+
+    if (entrance && entrance.status === 'ok' && (entrance.entranceIP || entrance.entranceHost)) {
+      const entIP = entrance.entranceIP || '';
+      const isDirect =
+        Boolean(entIP) &&
+        (entIP === l.ip || Boolean(probe && probe.ipv6 && probe.ipv6.ip && entIP === probe.ipv6.ip));
+      if (isDirect) {
+        const dTxt = String(l.countryCode || '').toUpperCase() === 'CN' ? '直连接入' : '直连出境';
+        htmlHops.push(colorSpan(dTxt, COLORS.cyan, true));
+        plainHops.push(dTxt);
+      } else {
+        const eg = entrance.geo;
+        const entASN = String((eg && eg.asn) || '').toUpperCase();
+        const isEntCF =
+          entASN === 'AS13335' ||
+          /cloudflare/i.test(String((eg && eg.ispDisplay) || '') + ' ' + String(entrance.entranceHost || ''));
+
+        let eTag = '中转入口';
+        let eColor = COLORS.purple;
+        if (eg && eg.isPrivate) {
+          eTag = '🏠 内网网关';
+        } else if (isEntCF) {
+          eTag = '☁️ CF 边缘入口';
+          eColor = COLORS.primary;
+        } else if (eg) {
+          const place = (eg.city || eg.region || eg.country || '中转').replace(
+            /省|市|壮族自治区|维吾尔自治区|回族自治区|特别行政区/g,
+            ''
+          );
+          const shortISP = eg.ispDisplay ? eg.ispDisplay.replace(/^中国/, '').trim() : '';
+          const sep =
+            shortISP && (/[a-zA-Z]/.test(place) || /[a-zA-Z]/.test(shortISP) || shortISP.length > 2) ? ' ' : '';
+          eTag = getFlagEmoji(eg.countryCode) + ' ' + place + (shortISP ? sep + shortISP : '');
+        }
+        htmlHops.push(colorSpan(eTag, eColor, true));
+        plainHops.push(eTag);
+      }
+    } else if (entrance && entrance.dialerProxy && !entrance.dialerProxy.startsWith('__clash_chain_entry_')) {
+      const dpTag = '🔗 ' + entrance.dialerProxy;
+      htmlHops.push(colorSpan(dpTag, COLORS.purple, true));
+      plainHops.push(dpTag);
+    }
+
+    const landTag = flag + ' ' + (l.city || l.country || l.countryCode || '落地');
+    htmlHops.push(esc(landTag));
+    plainHops.push(landTag);
+
+    if (cf && cf.colo) {
+      const cfTag = '☁️ ' + cf.colo;
+      htmlHops.push(esc(cfTag));
+      plainHops.push(cfTag);
+    }
+
+    return {
+      html: htmlHops.join(' ➔ '),
+      plain: plainHops.join(' ➔ '),
+    };
   }
 
   // ============================================================================
@@ -1555,7 +1943,7 @@
   }
 
   /**
-   * 视图 1：🌐 节点链路与入口查询 (一屏展示完整拓扑 + 出入口 + Cloudflare WARP/POP)
+   * 视图 1：🌐 节点链路与入口查询 (一屏展示链路类型 + 拓扑走向 + 出入口 + Cloudflare WARP/POP)
    */
   function renderInfoSheetHTML({ nodeName, nodeInfo, domestic, entrance, probe }) {
     const l = probe.landing;
@@ -1564,34 +1952,18 @@
     const lGeo = deduplicateGeoParts([l.country, l.region, l.city]).join(' ');
     const lines = renderCompactHeader(nodeName, nodeInfo, entrance && entrance.leafNode);
 
-    // 1. 拓扑总览横幅
-    const hops = [];
-    if (domestic && domestic.ip) {
-      hops.push('🇨🇳 ' + esc(domestic.shortTag || '本地'));
-    }
-    if (entrance && entrance.status === 'ok' && entrance.entranceIP) {
-      const isDirect =
-        entrance.entranceIP === l.ip ||
-        Boolean(probe.ipv6 && probe.ipv6.ip && entrance.entranceIP === probe.ipv6.ip);
-      if (isDirect) {
-        hops.push(colorSpan('直连出境', COLORS.cyan, true));
-      } else {
-        const eg = entrance.geo;
-        const eTag = eg
-          ? (eg.isPrivate ? '🏠 内网' : getFlagEmoji(eg.countryCode) + ' ' + (eg.city || eg.region || eg.country || '中转').replace(/省|市|壮族自治区|维吾尔自治区|回族自治区/g, '')) +
-            (eg.ispDisplay ? eg.ispDisplay.replace(/^中国/, '') : '')
-          : '中转入口';
-        hops.push(colorSpan(eTag, COLORS.purple, true));
-      }
-    }
-    hops.push(flag + ' ' + esc(l.city || l.country || l.countryCode || '落地'));
-    if (cf && cf.colo) {
-      hops.push('☁️ ' + esc(cf.colo));
-    }
+    // 1. 链路类型与拓扑走向总览
+    const linkInfo = classifyLinkType({ nodeName, nodeInfo, entrance, probe });
+    const topo = buildTopologyHops({ domestic, entrance, probe });
 
     lines.push('');
-    lines.push('<b>▸ 代理链路走向</b>');
-    lines.push(hops.join(' ➔ '));
+    lines.push('<b>▸ 代理链路与走向</b>');
+    lines.push(
+      '链路类型：' +
+        colorSpan(linkInfo.badge, linkInfo.color, true) +
+        (linkInfo.detail ? ' <span style="color:' + COLORS.muted + '">(' + esc(linkInfo.detail) + ')</span>' : '')
+    );
+    lines.push('链路走向：' + topo.html);
 
     // 2. 出入口明细
     lines.push('');
@@ -1615,24 +1987,29 @@
         const portStr = !CFG.maskIP && entrance.entrancePort ? ':' + entrance.entrancePort : '';
         if (isDirect) {
           lines.push(
-            '中转入口：<code>' +
+            '节点入口：<code>' +
               esc(maskIPString(entIP, CFG.maskIP) + portStr) +
               '</code> ' +
               colorSpan('[直连无中转]', COLORS.cyan, true)
           );
         } else {
           const eg = entrance.geo;
+          const regCityParts = eg ? deduplicateGeoParts([eg.region || eg.country, eg.city]) : [];
+          const regCitySep = regCityParts.some((p) => /[a-zA-Z]/.test(p)) ? ' ' : '';
           const eGeo = eg
             ? [
                 eg.isPrivate ? '🏠' : getFlagEmoji(eg.countryCode),
-                deduplicateGeoParts([eg.region || eg.country, eg.city]).join(''),
+                regCityParts.join(regCitySep),
                 eg.ispDisplay || eg.isp || eg.org,
               ]
                 .filter(Boolean)
                 .join(' ')
             : '';
+          const nonTransitCodes = new Set(['overseas-direct-warp', 'same-asn-multi-ip', 'cf-warp-tunnel']);
+          const entLabel = nonTransitCodes.has(linkInfo.code) ? '拨号入口' : '中转入口';
           lines.push(
-            '中转入口：<code>' +
+            entLabel +
+              '：<code>' +
               esc(maskIPString(entIP || entHost, CFG.maskIP) + portStr) +
               '</code>' +
               (eGeo ? ' · ' + esc(eGeo) : '')
@@ -1648,6 +2025,12 @@
           '中转入口：<span style="color:' +
             COLORS.muted +
             '">未开启（设置→客户端设置→外部控制器→本机 填密钥可查）</span>'
+        );
+      } else if (entrance.status === 'not_found') {
+        lines.push(
+          '中转入口：<span style="color:' +
+            COLORS.muted +
+            '">连接已快速释放（再次长按查询即可捕获实时入口 IP）</span>'
         );
       }
     }
@@ -1941,11 +2324,30 @@
     return q;
   }
 
-  function renderWebPortalHTML(domestic, infoProbe, purity, targetNode) {
+  function renderWebPortalHTML(domestic, entrance, infoProbe, purity, targetNode) {
     const l = infoProbe.landing;
     const cf = infoProbe.cfTrace;
     const flag = getFlagEmoji(l.countryCode || '');
     const geo = deduplicateGeoParts([l.country, l.region, l.city]).join(' ');
+    const linkInfo = classifyLinkType({
+      nodeName: targetNode || (entrance && entrance.leafNode) || '',
+      nodeInfo: null,
+      entrance,
+      probe: infoProbe,
+    });
+    const topo = buildTopologyHops({ domestic, entrance, probe: infoProbe });
+    const hasEnt =
+      entrance && entrance.status === 'ok' && (entrance.entranceIP || entrance.entranceHost);
+    const entGeoText =
+      hasEnt && entrance.geo
+        ? [
+            entrance.geo.isPrivate ? '🏠' : getFlagEmoji(entrance.geo.countryCode),
+            deduplicateGeoParts([entrance.geo.region || entrance.geo.country, entrance.geo.city]).join(''),
+            entrance.geo.ispDisplay || entrance.geo.isp || entrance.geo.org,
+          ]
+            .filter(Boolean)
+            .join(' ')
+        : '';
     return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -1978,6 +2380,12 @@
   <div class="hero">
     <h1>🌐 节点网络与纯净度诊断</h1>
     <p>${esc(targetNode ? '指定节点：' + targetNode : '当前活跃代理实时检测')} · ${infoProbe.elapsedMs} ms</p>
+  </div>
+  <div class="card">
+    <h2>🔀 代理链路总览</h2>
+    <div class="row"><span class="k">链路类型</span><span class="v" style="color:${linkInfo.color}">${esc(linkInfo.badge)}${linkInfo.detail ? ` <span style="font-weight:400;color:var(--sub)">(${esc(linkInfo.detail)})</span>` : ''}</span></div>
+    <div class="row"><span class="k">链路走向</span><span class="v">${esc(topo.plain)}</span></div>
+    ${hasEnt ? `<div class="row"><span class="k">拨号入口</span><span class="v"><code>${esc(maskIPString(entrance.entranceIP || entrance.entranceHost, CFG.maskIP))}</code>${entGeoText ? ' · ' + esc(entGeoText) : ''}</span></div>` : ''}
   </div>
   ${domestic && domestic.ip ? `<div class="card"><h2>🇨🇳 本地直连</h2>
     <div class="row"><span class="k">直连 IP</span><span class="v"><code>${esc(maskIPString(domestic.ip, CFG.maskIP))}</code></span></div>
@@ -2039,18 +2447,31 @@
 
     try {
       const targetNode = query.node || undefined;
-      const [domestic, infoProbe] = await Promise.all([
+      const [domestic, probeWrap] = await Promise.all([
         CFG.showDomestic ? queryDomesticDirect(true) : Promise.resolve(null),
-        executeModeProbe(targetNode, 'info'),
+        runProbeWithEntranceCapture(targetNode || '', true, () => executeModeProbe(targetNode, 'info')),
       ]);
+      const infoProbe = probeWrap.probe;
+      const entrance = probeWrap.entrance;
       const purity = await queryPurityIPAPI(infoProbe.landing.ip, targetNode);
+      const linkType = classifyLinkType({
+        nodeName: targetNode || (entrance && entrance.leafNode) || '',
+        nodeInfo: null,
+        entrance,
+        probe: infoProbe,
+      });
+      const topology = buildTopologyHops({ domestic, entrance, probe: infoProbe }).plain;
 
       if (query.format === 'json' || pathname === '/json' || pathname === '/api') {
         $done({
           response: {
             status: 200,
             headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' },
-            body: JSON.stringify({ ok: true, targetNode: targetNode || null, domestic, probe: infoProbe, purity }, null, 2),
+            body: JSON.stringify(
+              { ok: true, targetNode: targetNode || null, linkType, topology, domestic, entrance, probe: infoProbe, purity },
+              null,
+              2
+            ),
           },
         });
         return;
@@ -2060,7 +2481,7 @@
         response: {
           status: 200,
           headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
-          body: renderWebPortalHTML(domestic, infoProbe, purity, targetNode),
+          body: renderWebPortalHTML(domestic, entrance, infoProbe, purity, targetNode),
         },
       });
     } catch (e) {
@@ -2150,21 +2571,76 @@
     return renderInfoSheetHTML(ctx);
   }
 
+  function resolveActiveRoutingContext() {
+    const out = { modeName: '', rootGroup: '', leafNode: '' };
+    if (typeof $config === 'undefined' || !$config.getConfig) return out;
+    try {
+      const raw = $config.getConfig();
+      const c = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (!c || typeof c !== 'object') return out;
+      out.modeName = { 0: '全局直连', 1: '规则分流', 2: '全局代理' }[c.running_model] || '';
+      if (c.running_model === 0) {
+        out.rootGroup = 'DIRECT';
+        out.leafNode = 'DIRECT';
+        return out;
+      }
+      const groups = new Set(Array.isArray(c.all_policy_groups) ? c.all_policy_groups : []);
+      const startGroup =
+        c.running_model === 2
+          ? c.global_proxy || 'GLOBAL'
+          : c.final || (Array.isArray(c.all_policy_groups) && c.all_policy_groups[0]) || '';
+      out.rootGroup = String(startGroup || '').trim();
+      if ($config.getSelectedPolicy && out.rootGroup) {
+        let cur = out.rootGroup;
+        const seen = new Set();
+        for (let i = 0; i < 8; i++) {
+          if (!cur || seen.has(cur)) break;
+          seen.add(cur);
+          if (groups.size > 0 && !groups.has(cur) && cur !== 'GLOBAL') break;
+          const next = $config.getSelectedPolicy(cur);
+          if (!next || typeof next !== 'string') break;
+          cur = next.trim();
+        }
+        if (cur && cur !== 'GLOBAL') out.leafNode = cur;
+      }
+    } catch (_) {}
+    return out;
+  }
+
+  function parsePrevEventState(raw) {
+    if (!raw || typeof raw !== 'string') return null;
+    const s = raw.trim();
+    if (!s) return null;
+    if (s[0] === '{') {
+      try {
+        const j = JSON.parse(s);
+        if (j && typeof j === 'object') return j;
+      } catch (_) {}
+    }
+    const parts = s.split('|');
+    return {
+      v: 1,
+      domIP: parts[0] || '',
+      landIP: parts[1] || '',
+      cc: (parts[2] || '').toUpperCase(),
+    };
+  }
+
+  function formatClockHMS() {
+    const d = new Date();
+    const pad = (n) => (n < 10 ? '0' + n : String(n));
+    return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+
   async function handleModulePanel() {
     recoverDanglingPolicyIfAny();
     try {
-      let modeInfo = '';
-      if (typeof $config !== 'undefined' && $config.getConfig) {
-        try {
-          const raw = $config.getConfig();
-          const c = typeof raw === 'string' ? JSON.parse(raw) : raw;
-          if (c) {
-            const mName = { 0: '全局直连', 1: '规则分流', 2: '全局代理' }[c.running_model] || '连接中';
-            const pol = c.running_model === 2 ? c.global_proxy : c.final;
-            modeInfo = mName + (pol ? ' · ' + pol : '');
-          }
-        } catch (_) {}
-      }
+      const routing = resolveActiveRoutingContext();
+      const routeTarget =
+        routing.rootGroup && routing.leafNode && routing.rootGroup !== routing.leafNode
+          ? routing.rootGroup + ' ➔ ' + routing.leafNode
+          : routing.leafNode || routing.rootGroup;
+      const modeInfo = [routing.modeName, routeTarget].filter(Boolean).join(' · ');
 
       const [domestic, probeWrap] = await Promise.all([
         CFG.showDomestic ? queryDomesticDirect(false).catch(() => null) : Promise.resolve(null),
@@ -2174,9 +2650,17 @@
       const entrance = probeWrap.entrance;
       const l = probe.landing;
       const cf = probe.cfTrace;
+      const activeNode = (entrance && entrance.leafNode) || routing.leafNode || '';
+      const linkInfo = classifyLinkType({
+        nodeName: activeNode,
+        nodeInfo: null,
+        entrance,
+        probe,
+      });
 
       const lines = [];
       if (modeInfo) lines.push('模式：' + modeInfo);
+      lines.push('链路：' + linkInfo.badge + (activeNode ? ' · ' + activeNode : ''));
       if (domestic && domestic.ip) {
         lines.push('直连：' + maskIPString(domestic.ip, CFG.maskIP) + ' (' + [domestic.location, domestic.isp].filter(Boolean).join(' ') + ')');
       }
@@ -2212,24 +2696,137 @@
       return;
     }
     try {
-      const [domestic, landing] = await Promise.all([
+      const routing = resolveActiveRoutingContext();
+      const [domestic, probeWrap] = await Promise.all([
         CFG.showDomestic ? queryDomesticDirect(false).catch(() => null) : Promise.resolve(null),
-        queryLandingIPv4(undefined),
+        runProbeWithEntranceCapture('', CFG.showEntrance, () => executeModeProbe(undefined, 'panel')),
       ]);
-      const fingerprint = [(domestic && domestic.ip) || '', landing.ip || '', landing.countryCode || ''].join('|');
-      const prev = storeRead(LAST_EVENT_KEY);
-      if (fingerprint && fingerprint !== prev) {
-        storeWrite(LAST_EVENT_KEY, fingerprint);
-        const flag = getFlagEmoji(landing.countryCode);
-        const geo = deduplicateGeoParts([landing.country, landing.city]).join(' ');
-        notify(
-          '🌐 网络出口已更新',
-          flag + ' 落地：' + maskIPString(landing.ip, CFG.maskIP) + ' (' + geo + ')',
-          (domestic && domestic.ip ? '🇨🇳 直连：' + maskIPString(domestic.ip, CFG.maskIP) + ' ' + (domestic.shortTag || '') + '\n' : '') +
-            '🏢 ' + [landing.asn, landing.isp || landing.org].filter(Boolean).join(' ')
+      const probe = probeWrap.probe;
+      const entrance = probeWrap.entrance;
+      const landing = probe.landing || {};
+      const cf = probe.cfTrace;
+      const ipv6 = probe.ipv6;
+
+      const domIP = (domestic && domestic.ip) || '';
+      const landIP = landing.ip || '';
+      const cc = String(landing.countryCode || '').toUpperCase();
+      const entIP = (entrance && entrance.status === 'ok' && entrance.entranceIP) || '';
+      const activeNode = (entrance && entrance.leafNode) || routing.leafNode || '';
+
+      const prev = parsePrevEventState(storeRead(LAST_EVENT_KEY));
+      const hasChanged =
+        Boolean(landIP) &&
+        (!prev || prev.v !== 2 || prev.domIP !== domIP || prev.landIP !== landIP || prev.cc !== cc);
+
+      if (hasChanged) {
+        storeWrite(
+          LAST_EVENT_KEY,
+          JSON.stringify({ v: 2, domIP, landIP, cc, entIP, node: activeNode })
         );
+
+        const purity = await queryPurityIPAPI(landIP, undefined, Math.min(CFG.timeoutMs, 3800));
+        const linkInfo = classifyLinkType({
+          nodeName: activeNode,
+          nodeInfo: null,
+          entrance,
+          probe,
+        });
+        const topo = buildTopologyHops({ domestic, entrance, probe });
+
+        const flag = getFlagEmoji(cc);
+        const geo = deduplicateGeoParts([landing.country, landing.city]).join(' ') || cc || '未知地区';
+        const regionLabel = landing.country || geo || cc;
+
+        const domChanged = Boolean(prev && prev.domIP && domIP && prev.domIP !== domIP);
+        const landChanged = Boolean(prev && prev.landIP && landIP && prev.landIP !== landIP);
+
+        let titleText = '🌐 网络出口已更新 · ' + flag + ' ' + regionLabel;
+        let changeText = '出口状态已更新';
+        if (!prev || (!prev.domIP && !prev.landIP)) {
+          titleText = '🌐 网络出口已就绪 · ' + flag + ' ' + regionLabel;
+          changeText = '首次记录当前出口';
+        } else if (domChanged && landChanged) {
+          titleText = '🌐 网络出口已更新 · ' + flag + ' ' + regionLabel;
+          changeText =
+            prev.cc && cc && prev.cc !== cc
+              ? '直连与代理均已变更 (' + getFlagEmoji(prev.cc) + ' ' + prev.cc + ' ➔ ' + flag + ' ' + cc + ')'
+              : '本地直连与代理落地均已变更';
+        } else if (domChanged && !landChanged) {
+          titleText = '🌐 网络环境已切换 · ' + flag + ' ' + regionLabel;
+          changeText = '本地网络已切换 (代理落地不变)';
+        } else if (!domChanged && landChanged) {
+          titleText = '🌐 代理出口已更新 · ' + flag + ' ' + regionLabel;
+          changeText =
+            prev.cc && cc && prev.cc !== cc
+              ? '代理落地已切换 (' + getFlagEmoji(prev.cc) + ' ' + prev.cc + ' ➔ ' + flag + ' ' + cc + ')'
+              : '代理落地 IP 已更新';
+        }
+
+        const subtitleText = '🔀 ' + linkInfo.badge + (topo && topo.plain ? ' ｜ ' + topo.plain : '');
+
+        const exitLines = [];
+        exitLines.push(flag + ' 落地：' + maskIPString(landIP, CFG.maskIP) + ' (' + geo + ')');
+        const asnText = [landing.asn, landing.isp || landing.org].filter(Boolean).join(' ');
+        if (asnText) exitLines.push('🏢 归属：' + asnText);
+
+        if (purity) {
+          const cleanLineage = String(purity.lineageLabel || '')
+            .replace(/^[^\w\u4e00-\u9fa5]+/, '')
+            .trim();
+          const nativeTag =
+            purity.isNativeGeo === true ? '原生 IP' : purity.isNativeGeo === false ? '广播 IP' : '';
+          const scoreTag = '纯净度 ' + Math.max(0, 100 - (purity.riskIndex || 0)) + '/100';
+          const pText = [cleanLineage, nativeTag, scoreTag].filter(Boolean).join(' · ');
+          if (pText) exitLines.push('🛡️ 属性：' + pText);
+        }
+
+        const edgeParts = [];
+        if (cf && cf.colo) {
+          edgeParts.push('CF-' + cf.colo + (cf.coloCity ? ' (' + cf.coloCity + ')' : ''));
+        }
+        if (cf && (cf.warp === 'on' || cf.warp === 'plus')) {
+          edgeParts.push('WARP ' + (cf.warp === 'plus' ? 'Plus' : '开启'));
+        }
+        if (CFG.checkIPv6) {
+          edgeParts.push(ipv6 && ipv6.ip ? 'IPv6 双栈' : '仅 IPv4');
+        }
+        if (edgeParts.length > 0) exitLines.push('☁️ 边缘：' + edgeParts.join(' · '));
+
+        const routeLines = [];
+        const routeTarget =
+          routing.rootGroup && activeNode && routing.rootGroup !== activeNode
+            ? routing.rootGroup + ' ➔ ' + activeNode
+            : activeNode || routing.rootGroup;
+        const strategyText = [routing.modeName, routeTarget].filter(Boolean).join(' · ');
+        if (strategyText) routeLines.push('🧭 策略：' + strategyText);
+
+        routeLines.push(
+          '🔗 链路：' + linkInfo.badge + (linkInfo.detail ? ' · ' + linkInfo.detail : '')
+        );
+
+        if (entIP && entIP !== landIP) {
+          const eg = entrance.geo;
+          const eTxt = eg
+            ? deduplicateGeoParts([eg.city || eg.region || eg.country, eg.ispDisplay || eg.isp]).join(' ')
+            : '';
+          routeLines.push('🚀 入口：' + maskIPString(entIP, CFG.maskIP) + (eTxt ? ' (' + eTxt + ')' : ''));
+        }
+
+        if (domIP && domIP !== landIP) {
+          const domTag =
+            (domestic && domestic.shortTag) ||
+            [domestic && domestic.location, domestic && domestic.isp].filter(Boolean).join(' ');
+          routeLines.push('🇨🇳 直连：' + maskIPString(domIP, CFG.maskIP) + (domTag ? ' (' + domTag + ')' : ''));
+        }
+
+        routeLines.push('🔄 变动：' + changeText + ' · ' + formatClockHMS());
+
+        const bodyText = exitLines.join('\n') + '\n\n' + routeLines.join('\n');
+        notify(titleText, subtitleText, bodyText);
       }
-    } catch (_) {}
+    } catch (e) {
+      log('network-changed error: ' + ((e && e.message) || e));
+    }
     $done({});
   }
 
