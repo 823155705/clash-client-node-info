@@ -32,13 +32,13 @@ DOMAIN,whois.pconline.com.cn,DIRECT
 当前网络出口信息 = script-name=节点信息查询, title="当前网络出口信息", content="点击右上角刷新按钮查看当前直连入口与代理落地详情", icon=globe.asia.australia, icon-color=#3B82F6
 
 [Script]
-http-request ^https?:\/\/net-lsp-x\.com script-path=https://raw.githubusercontent.com/823155705/clash-client-node-info/main/xream-clash-node-info.js, timeout=30, script-update-interval=86400, tag=节点直测桥接引擎, argument="MODE=bridge&SHOW_DOMESTIC={SHOW_DOMESTIC}&CHECK_PURITY={CHECK_PURITY}&CHECK_IPV6={CHECK_IPV6}&MASK_IP={MASK_IP}&TIMEOUT_SEC={TIMEOUT_SEC}&IPAPI_KEY={IPAPI_KEY}"
+http-request ^https?:\/\/net-lsp-x\.com script-path=https://raw.githubusercontent.com/823155705/clash-client-node-info/main/xream-clash-node-info.js?v=1.0.1, timeout=30, script-update-interval=86400, tag=节点直测桥接引擎, argument="MODE=bridge&SHOW_DOMESTIC={SHOW_DOMESTIC}&CHECK_PURITY={CHECK_PURITY}&CHECK_IPV6={CHECK_IPV6}&MASK_IP={MASK_IP}&TIMEOUT_SEC={TIMEOUT_SEC}&IPAPI_KEY={IPAPI_KEY}"
 
-generic script-path=https://raw.githubusercontent.com/823155705/clash-client-node-info/main/xream-clash-node-info.js, timeout=35, script-update-interval=86400, tag=节点信息查询, img-url=globe.asia.australia, argument="MODE=basic&SHOW_DOMESTIC={SHOW_DOMESTIC}&CHECK_PURITY={CHECK_PURITY}&CHECK_IPV6={CHECK_IPV6}&MASK_IP={MASK_IP}&AUTO_SWITCH_FALLBACK={AUTO_SWITCH_FALLBACK}&TIMEOUT_SEC={TIMEOUT_SEC}&IPAPI_KEY={IPAPI_KEY}"
+generic script-path=https://raw.githubusercontent.com/823155705/clash-client-node-info/main/xream-clash-node-info.js?v=1.0.1, timeout=35, script-update-interval=86400, tag=节点信息查询, img-url=globe.asia.australia, argument="MODE=basic&SHOW_DOMESTIC={SHOW_DOMESTIC}&CHECK_PURITY={CHECK_PURITY}&CHECK_IPV6={CHECK_IPV6}&MASK_IP={MASK_IP}&AUTO_SWITCH_FALLBACK={AUTO_SWITCH_FALLBACK}&TIMEOUT_SEC={TIMEOUT_SEC}&IPAPI_KEY={IPAPI_KEY}"
 
-generic script-path=https://raw.githubusercontent.com/823155705/clash-client-node-info/main/xream-clash-node-info.js, timeout=45, script-update-interval=86400, tag=节点纯净度深度检测, img-url=shield.lefthalf.filled, argument="MODE=deep&SHOW_DOMESTIC={SHOW_DOMESTIC}&CHECK_PURITY=true&CHECK_IPV6={CHECK_IPV6}&MASK_IP={MASK_IP}&AUTO_SWITCH_FALLBACK={AUTO_SWITCH_FALLBACK}&TIMEOUT_SEC={TIMEOUT_SEC}&IPAPI_KEY={IPAPI_KEY}"
+generic script-path=https://raw.githubusercontent.com/823155705/clash-client-node-info/main/xream-clash-node-info.js?v=1.0.1, timeout=45, script-update-interval=86400, tag=节点纯净度深度检测, img-url=shield.lefthalf.filled, argument="MODE=deep&SHOW_DOMESTIC={SHOW_DOMESTIC}&CHECK_PURITY=true&CHECK_IPV6={CHECK_IPV6}&MASK_IP={MASK_IP}&AUTO_SWITCH_FALLBACK={AUTO_SWITCH_FALLBACK}&TIMEOUT_SEC={TIMEOUT_SEC}&IPAPI_KEY={IPAPI_KEY}"
 
-network-changed script-path=https://raw.githubusercontent.com/823155705/clash-client-node-info/main/xream-clash-node-info.js, timeout=20, script-update-interval=86400, tag=网络切换出口通知, argument="MODE=event&SHOW_DOMESTIC={SHOW_DOMESTIC}&MASK_IP={MASK_IP}&NOTIFY_ON_CHANGE={NOTIFY_ON_CHANGE}&TIMEOUT_SEC={TIMEOUT_SEC}"
+network-changed script-path=https://raw.githubusercontent.com/823155705/clash-client-node-info/main/xream-clash-node-info.js?v=1.0.1, timeout=20, script-update-interval=86400, tag=网络切换出口通知, argument="MODE=event&SHOW_DOMESTIC={SHOW_DOMESTIC}&MASK_IP={MASK_IP}&NOTIFY_ON_CHANGE={NOTIFY_ON_CHANGE}&TIMEOUT_SEC={TIMEOUT_SEC}"
 
 [MITM]
 hostname = net-lsp-x.com

@@ -154,8 +154,12 @@
       },
       reqOpts.headers || {}
     );
-    // Clash-Client 的 $httpClient timeout 单位：<=60 视为秒，>60 视为毫秒或秒均可，传秒最稳妥
-    reqOpts.timeout = Math.max(2, Math.ceil(timeoutMs / 1000));
+    // Clash-Client (ModuleScriptGlobals.swift:374):
+    // Loon 家族 ($loon 存在) 下 $httpClient.timeout 按毫秒解析 (value / 1000)，而 Surge/Stash 家族按秒解析
+    const isLoonRuntime = typeof $loon !== 'undefined';
+    reqOpts.timeout = isLoonRuntime
+      ? Math.max(2000, Math.round(timeoutMs))
+      : Math.max(2, Math.ceil(timeoutMs / 1000));
 
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -846,6 +850,8 @@
           throw new Error('无法将 GLOBAL 临时路由至节点「' + targetNode + '」，建议开启模块页 HTTPS 解密开关实现零切换测速');
         }
         switched = true;
+        // 留出极短缓冲确保系统网络栈切换至新全局出站
+        await new Promise((r) => setTimeout(r, 80));
       }
 
       const data = await executeOutboundProbe(undefined, deepMode, CFG.checkPurity, CFG.checkIPv6);
