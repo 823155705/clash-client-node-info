@@ -1,11 +1,11 @@
 /**
- * xream & Kelee Node Suite — ProjectClash/Clash-Client 全能节点检测套件 (v2.4.0)
+ * xream & Kelee Node Suite — ProjectClash/Clash-Client 全能节点检测套件 (v2.5.0)
  *
  * 深度融合：
  * 1. xream/scripts (ip-info / net-lsp-x / ip-whois / ip-score)
  * 2. 可莉插件仓库 (Node_detection_tool 流媒体&AI解锁 / WARP_Node_Query / NodeLinkCheck 代理链路)
  *
- * 专为 ProjectClash/Clash-Client (iOS / macOS) 三大独立长按菜单设计（零重叠、高信噪比极简排版）：
+ * 专为 ProjectClash/Clash-Client (iOS / macOS) 三大独立长按菜单设计（轻量化低并发架构、高信噪比排版）：
  * - 🌐 节点链路与入口查询 (MODE=info)  : 本地直连 ➔ 中转入口(含ASN) ➔ 落地双栈 ➔ BGP上游骨干 ➔ CF边缘 & WARP
  * - 🛡️ 节点纯净度深度检测 (MODE=purity): 双 ISP 原生家宽血统 + 广播/原生判定 + BGP上游 + 三源风控/RBL审计
  * - 🎬 流媒体与 AI 解锁检测 (MODE=unlock): ChatGPT(Web+iOS) / Claude / Gemini / Netflix / YouTube / Disney+ / TikTok / 动画疯
@@ -18,6 +18,10 @@
   const BRIDGE_CHECK_PATH = '/__clash_node_check';
   const STATE_RESTORE_KEY = 'xream_clash_pending_restore_v1';
   const LAST_EVENT_KEY = 'xream_clash_last_net_event_v1';
+  const IP_CACHE_KEY = 'xream_clash_ip_cache_v1';
+  const IP_CACHE_MAX = 16;
+  const CACHE_TTL_BG_MS = 6 * 3600 * 1000; // 后台切网与面板复用缓存 6 小时
+  const CACHE_TTL_FG_MS = 10 * 60 * 1000;  // 手动链路查询对静态 BGP/入口归属短缓存 10 分钟
 
   const COLORS = {
     primary: '#3b82f6',
@@ -170,6 +174,79 @@
       if (typeof $notification !== 'undefined' && $notification.post) {
         $notification.post(title || '', subtitle || '', body || '');
       }
+    } catch (_) {}
+  }
+
+  function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  /**
+   * 并发限流执行器：将并发数严格控制在 iOS PacketTunnel (background_cap=10 / maximumPendingRequests=8) 红线内
+   */
+  async function runWithConcurrency(taskFns, limit) {
+    const maxWorkers = Math.max(1, Math.min(limit || 3, taskFns.length));
+    const results = new Array(taskFns.length);
+    let nextIdx = 0;
+    async function worker() {
+      while (nextIdx < taskFns.length) {
+        const cur = nextIdx++;
+        results[cur] = await taskFns[cur]();
+      }
+    }
+    const workers = [];
+    for (let i = 0; i < maxWorkers; i++) workers.push(worker());
+    await Promise.all(workers);
+    return results;
+  }
+
+  /**
+   * 轻量级按 IP 维度的 LRU 元数据缓存（避免固定出口切网/刷面板时重复拉取 55KB BGP 表与风控接口）
+   */
+  function readIPCache(ip, field, maxAgeMs) {
+    if (!ip || !field || !maxAgeMs || maxAgeMs <= 0) return null;
+    try {
+      const raw = storeRead(IP_CACHE_KEY);
+      if (!raw) return null;
+      const bag = JSON.parse(raw);
+      const rec = bag && bag.entries && bag.entries[ip];
+      if (!rec || !rec[field]) return null;
+      const ts = Number((rec.tsMap && rec.tsMap[field]) || rec.ts || 0);
+      if (Date.now() - ts > maxAgeMs) return null;
+      return rec[field];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function writeIPCache(ip, field, val) {
+    if (!ip || !field || !val) return;
+    try {
+      const raw = storeRead(IP_CACHE_KEY);
+      let bag = null;
+      if (raw) {
+        try {
+          bag = JSON.parse(raw);
+        } catch (_) {}
+      }
+      if (!bag || typeof bag !== 'object' || !bag.entries || typeof bag.entries !== 'object') {
+        bag = { entries: {} };
+      }
+      const prev = bag.entries[ip] && typeof bag.entries[ip] === 'object' ? bag.entries[ip] : {};
+      const now = Date.now();
+      const tsMap = Object.assign({}, prev.tsMap || {}, { [field]: now });
+      bag.entries[ip] = Object.assign({}, prev, { [field]: val, ts: now, tsMap });
+
+      const keys = Object.keys(bag.entries);
+      if (keys.length > IP_CACHE_MAX) {
+        keys
+          .sort((a, b) => Number(bag.entries[a].ts || 0) - Number(bag.entries[b].ts || 0))
+          .slice(0, keys.length - IP_CACHE_MAX)
+          .forEach((k) => {
+            delete bag.entries[k];
+          });
+      }
+      storeWrite(IP_CACHE_KEY, JSON.stringify(bag));
     } catch (_) {}
   }
 
@@ -519,15 +596,19 @@
   }
 
   async function queryLandingIPv6(targetNode) {
-    const v6Timeout = Math.min(CFG.timeoutMs, 3400);
+    const v6Timeout = Math.min(CFG.timeoutMs, 3000);
+    const t0 = Date.now();
     try {
       const j = await fetchJSON(buildOutboundOpts('https://api-ipv6.ip.sb/geoip', targetNode), v6Timeout);
       if (j && j.ip && j.ip.includes(':')) {
         return { ip: j.ip, countryCode: j.country_code || '' };
       }
-    } catch (_) {}
+    } catch (_) {
+      // 若首个 IPv6 接口已耗尽超时窗口，说明节点无 IPv6 出站路由，直接跳过二次超时等待
+      if (Date.now() - t0 >= v6Timeout - 200) return null;
+    }
     try {
-      const res = await httpRequest('get', buildOutboundOpts('https://6.ipw.cn', targetNode), 2500);
+      const res = await httpRequest('get', buildOutboundOpts('https://6.ipw.cn', targetNode), 2200);
       const ip = res.body.trim();
       if (ip.includes(':')) return { ip, countryCode: '' };
     } catch (_) {}
@@ -538,30 +619,25 @@
    * 移植自可莉仓库「WARP节点查询」：探测 Cloudflare 边缘机房 POP 与 WARP 出站套壳状态
    */
   async function queryCloudflareTrace(targetNode) {
-    const traceTimeout = Math.min(CFG.timeoutMs, 4200);
+    const traceTimeout = Math.min(CFG.timeoutMs, 3800);
     const urls = ['https://www.cloudflare.com/cdn-cgi/trace', 'https://1.1.1.1/cdn-cgi/trace'];
     for (const u of urls) {
+      const t0 = Date.now();
       try {
         const res = await httpRequest('get', buildOutboundOpts(u, targetNode), traceTimeout);
         if (res.status >= 200 && res.status < 400 && res.body.includes('colo=')) {
-          const kv = {};
-          res.body.split(/\r?\n/).forEach((line) => {
-            const idx = line.indexOf('=');
-            if (idx > 0) kv[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-          });
+          const kv = parseTraceMap(res.body);
           const colo = (kv.colo || '').toUpperCase();
           const warp = (kv.warp || 'off').toLowerCase();
           return {
             colo,
             coloCity: CF_COLO_MAP[colo] || '',
             warp, // 'off' | 'on' | 'plus'
-            http: kv.http || '',
-            tls: kv.tls || '',
-            loc: (kv.loc || '').toUpperCase(),
-            ip: kv.ip || '',
           };
         }
-      } catch (_) {}
+      } catch (_) {
+        if (Date.now() - t0 >= traceTimeout - 200) break;
+      }
     }
     return null;
   }
@@ -686,12 +762,19 @@
     };
   }
 
-  async function queryPurityIPAPI(ip, targetNode, timeoutOverride) {
+  async function queryPurityIPAPI(ip, targetNode, timeoutOverride, cacheTTLMs) {
+    if (!ip) return null;
+    if (cacheTTLMs && cacheTTLMs > 0) {
+      const cached = readIPCache(ip, 'purity', cacheTTLMs);
+      if (cached) return cached;
+    }
     let url = 'https://api.ipapi.is/?q=' + encodeURIComponent(ip);
     if (CFG.ipapiKey) url += '&key=' + encodeURIComponent(CFG.ipapiKey);
     try {
       const j = await fetchJSON(buildOutboundOpts(url, targetNode), timeoutOverride || CFG.timeoutMs);
-      return parseIPAPIIs(j);
+      const parsed = parseIPAPIIs(j);
+      if (parsed) writeIPCache(ip, 'purity', parsed);
+      return parsed;
     } catch (e) {
       log('ipapi.is error: ' + (e.message || e));
       return null;
@@ -757,8 +840,6 @@
           totalBlacklists: blKeys.length,
           listedCount: hits.length,
           listedNames: hits.slice(0, 5),
-          geo1: j.geoip1 ? [j.geoip1.country, j.geoip1.city].filter(Boolean).join(' ') : '',
-          geo2: j.geoip2 ? [j.geoip2.country, j.geoip2.city].filter(Boolean).join(' ') : '',
         };
       }
     } catch (e) {
@@ -895,7 +976,6 @@
     const hop1Counts = new Map();
     const hop2ByHop1 = new Map();
     const nearUpstreams = new Set();
-    const ixpSet = new Set();
     let totalMultiHop = 0;
 
     for (let i = 0; i < routes.length; i++) {
@@ -911,11 +991,6 @@
 
       const origin = path[path.length - 1];
       originCounts.set(origin, (originCounts.get(origin) || 0) + 1);
-
-      const ixpStart = Math.max(0, path.length - 3);
-      for (let k = ixpStart; k < path.length - 1; k++) {
-        if (lookupBGPASN(path[k]).tier === 'ixp') ixpSet.add(path[k]);
-      }
 
       if (path.length >= 2) {
         totalMultiHop++;
@@ -957,7 +1032,6 @@
         upstreams: [],
         shortNames: originInfo.name || originInfo.asn,
         cnOptNames: [],
-        ixpNames: [],
       };
     }
 
@@ -1007,13 +1081,6 @@
       if (u.tier === 'tier1') tier1Count++;
     }
 
-    const ixpNames = [...ixpSet]
-      .map((n) => {
-        const m = lookupBGPASN(n);
-        return m.name ? m.name + ' [' + m.asn + ']' : m.asn;
-      })
-      .slice(0, 3);
-
     let gradeLabel = '🌐 国际标准 BGP 路由';
     let gradeShort = '国际标准 BGP';
     let gradeLevel = 'normal';
@@ -1057,26 +1124,24 @@
       upstreams,
       shortNames,
       cnOptNames,
-      ixpNames,
     };
   }
 
-  async function queryBGPUpstreams(ip, targetNode) {
+  async function queryBGPUpstreams(ip, targetNode, cacheTTLMs) {
     if (!ip || isPrivateLANIP(ip)) return null;
+    if (cacheTTLMs && cacheTTLMs > 0) {
+      const cached = readIPCache(ip, 'bgp', cacheTTLMs);
+      if (cached) return cached;
+    }
     const url = 'https://stat.ripe.net/data/bgp-state/data.json?resource=' + encodeURIComponent(ip);
     const bgpTimeout = Math.min(CFG.timeoutMs, 4200);
     try {
-      const j = await fetchJSON(url, bgpTimeout);
+      const j = await fetchJSON(buildOutboundOpts(url, targetNode), bgpTimeout);
       const parsed = parseBGPState(j);
-      if (parsed) return parsed;
-    } catch (_) {}
-    if (targetNode) {
-      try {
-        const j = await fetchJSON(buildOutboundOpts(url, targetNode), bgpTimeout);
-        return parseBGPState(j);
-      } catch (e) {
-        log('bgp-state error: ' + (e.message || e));
-      }
+      if (parsed) writeIPCache(ip, 'bgp', parsed);
+      return parsed;
+    } catch (e) {
+      log('bgp-state error: ' + (e.message || e));
     }
     return null;
   }
@@ -1213,19 +1278,27 @@
   }
 
   async function checkNetflixUnlock(targetNode) {
-    const t = Math.min(CFG.timeoutMs, 6500);
-    const [nonOrig, orig] = await Promise.all([
-      httpRequest('get', buildOutboundOpts('https://www.netflix.com/title/81280792', targetNode), t).catch(() => null),
-      httpRequest('get', buildOutboundOpts('https://www.netflix.com/title/80018499', targetNode), t).catch(() => null),
-    ]);
+    const t = Math.min(CFG.timeoutMs, 5500);
+    // 先测非自制剧：若已完整解锁则直接返回，省去第 2 路大体积 HTML 下载；若连接彻底超时也不再二次卡死
+    const nonOrig = await httpRequest(
+      'get',
+      buildOutboundOpts('https://www.netflix.com/title/81280792', targetNode),
+      t
+    ).catch(() => null);
 
-    if (!nonOrig && !orig) {
+    if (!nonOrig) {
       return { name: 'Netflix', state: 'warn', text: '连接超时' };
     }
     if (isNetflixTitleAvailable(nonOrig)) {
       const reg = extractNetflixRegion(nonOrig);
       return { name: 'Netflix', state: 'yes', text: '完整解锁 (含非自制剧) [' + reg + ']' };
     }
+
+    const orig = await httpRequest(
+      'get',
+      buildOutboundOpts('https://www.netflix.com/title/80018499', targetNode),
+      t
+    ).catch(() => null);
     if (isNetflixTitleAvailable(orig)) {
       const reg = extractNetflixRegion(orig);
       return { name: 'Netflix', state: 'partial', text: '仅解锁自制剧 (Originals) [' + reg + ']' };
@@ -1346,15 +1419,16 @@
     const startedAt = Date.now();
     const runMode = normalizeMode(mode);
 
-    // 模式 A: 节点链路与入口查询 (极速并发：落地 IPv4➔BGP上游 + IPv6 + Cloudflare WARP & POP)
+    // 模式 A: 节点链路与入口查询 (受控并发 ≤3：落地 IPv4➔BGP上游 + IPv6 + Cloudflare WARP & POP)
     if (runMode === 'info' || runMode === 'panel') {
+      const bgpTTL = runMode === 'panel' ? CACHE_TTL_BG_MS : CACHE_TTL_FG_MS;
       const landingWithBGP = queryLandingIPv4(targetNode).then(async (landing) => {
-        const bgp = await queryBGPUpstreams(landing.ip, targetNode).catch(() => null);
+        const bgp = await queryBGPUpstreams(landing.ip, targetNode, bgpTTL).catch(() => null);
         return { landing, bgp };
       });
       const [lb, ipv6, cfTrace] = await Promise.all([
         landingWithBGP,
-        CFG.checkIPv6 ? queryLandingIPv6(targetNode) : Promise.resolve(null),
+        runMode === 'info' && CFG.checkIPv6 ? queryLandingIPv6(targetNode) : Promise.resolve(null),
         queryCloudflareTrace(targetNode),
       ]);
       return {
@@ -1368,15 +1442,18 @@
       };
     }
 
-    // 模式 B: 节点纯净度深度检测 (三源交叉风控：ipapi.is + proxycheck.io + ip-score RBL + BGP上游)
+    // 模式 B: 节点纯净度深度检测 (手动触发一律实时现查风控库，受控 3 并发防双跳拥塞)
     if (runMode === 'purity') {
       const landing = await queryLandingIPv4(targetNode);
-      const [purity, proxyCheck, ipScore, bgp] = await Promise.all([
-        queryPurityIPAPI(landing.ip, targetNode),
-        queryProxyCheckIO(landing.ip, targetNode),
-        queryIPScoreDeep(targetNode),
-        queryBGPUpstreams(landing.ip, targetNode).catch(() => null),
-      ]);
+      const [purity, proxyCheck, ipScore, bgp] = await runWithConcurrency(
+        [
+          () => queryPurityIPAPI(landing.ip, targetNode, 0, 0),
+          () => queryProxyCheckIO(landing.ip, targetNode),
+          () => queryIPScoreDeep(targetNode),
+          () => queryBGPUpstreams(landing.ip, targetNode, CACHE_TTL_FG_MS).catch(() => null),
+        ],
+        3
+      );
       return {
         ok: true,
         mode: 'purity',
@@ -1389,25 +1466,28 @@
       };
     }
 
-    // 模式 C: 流媒体与 AI 解锁检测 (8 大平台全并发实测)
+    // 模式 C: 流媒体与 AI 解锁检测 (3 路并发池：峰值 ≤4 请求，严守 iOS 8 请求上限与 10 槽位准入红线)
     if (runMode === 'unlock') {
-      const landingPromise = queryLandingIPv4(targetNode).catch(() => ({
+      const landing = await queryLandingIPv4(targetNode).catch(() => ({
         ip: '',
         country: '',
         countryCode: '',
       }));
-      const landing = await landingPromise;
       const cc = landing.countryCode || '';
-      const [chatgpt, claude, gemini, netflix, youtube, disney, tiktok, bahamut] = await Promise.all([
-        checkChatGPTUnlock(targetNode),
-        checkClaudeUnlock(targetNode),
-        checkGeminiUnlock(targetNode, cc),
-        checkNetflixUnlock(targetNode),
-        checkYouTubePremiumUnlock(targetNode),
-        checkDisneyPlusUnlock(targetNode, cc),
-        checkTikTokUnlock(targetNode, cc),
-        checkBahamutUnlock(targetNode),
-      ]);
+      const [chatgpt, claude, gemini, netflix, youtube, disney, tiktok, bahamut] =
+        await runWithConcurrency(
+          [
+            () => checkChatGPTUnlock(targetNode),
+            () => checkClaudeUnlock(targetNode),
+            () => checkGeminiUnlock(targetNode, cc),
+            () => checkNetflixUnlock(targetNode),
+            () => checkYouTubePremiumUnlock(targetNode),
+            () => checkDisneyPlusUnlock(targetNode, cc),
+            () => checkTikTokUnlock(targetNode, cc),
+            () => checkBahamutUnlock(targetNode),
+          ],
+          3
+        );
       return {
         ok: true,
         mode: 'unlock',
@@ -1446,12 +1526,16 @@
       '&ipv6=' + (CFG.checkIPv6 ? '1' : '0') +
       '&_t=' + Date.now();
     const bridgeURL = 'http://' + BRIDGE_HOST + BRIDGE_CHECK_PATH + '?' + qs;
-    const timeoutBudget = mode === 'info' ? CFG.timeoutMs + 5000 : CFG.timeoutMs * 2 + 7000;
+    const timeoutBudget = mode === 'info' ? CFG.timeoutMs + 5000 : CFG.timeoutMs * 2 + 9500;
     const res = await httpRequest('get', bridgeURL, timeoutBudget);
     if (res.status !== 200 || !res.body) throw new Error('Bridge HTTP ' + res.status);
     const data = JSON.parse(res.body);
     if (!data || !data.fromClashTunnelBridge) throw new Error('Not intercepted by tunnel engine');
     if (!data.ok) throw new Error(data.error || '节点探测失败');
+    if (data.landing && data.landing.ip) {
+      if (data.bgp) writeIPCache(data.landing.ip, 'bgp', data.bgp);
+      if (data.purity) writeIPCache(data.landing.ip, 'purity', data.purity);
+    }
     data.routeChannel = 'bridge';
     return data;
   }
@@ -1469,7 +1553,10 @@
     const prevModel = Number(cfg.running_model);
     const prevGlobal =
       ($config.getSelectedPolicy && $config.getSelectedPolicy('GLOBAL')) || cfg.global_proxy || '';
-    const alreadyOnTarget = prevModel === 2 && prevGlobal === targetNode;
+    const activeCtx = resolveActiveRoutingContext();
+    const isActiveGlobal = prevModel === 2 && prevGlobal === targetNode;
+    const isActiveRuleLeaf = prevModel === 1 && Boolean(targetNode) && activeCtx.leafNode === targetNode;
+    const alreadyOnTarget = isActiveGlobal || isActiveRuleLeaf;
 
     if (!alreadyOnTarget && !CFG.autoSwitchFallback) {
       return {
@@ -1493,11 +1580,15 @@
           throw new Error('无法将 GLOBAL 临时切换至「' + targetNode + '」，建议开启模块页 HTTPS 解密开关');
         }
         switched = true;
-        await new Promise((r) => setTimeout(r, 80));
+        await sleep(80);
       }
 
       const data = await executeModeProbe(undefined, mode);
-      data.routeChannel = alreadyOnTarget ? 'active-global' : 'config-fallback';
+      data.routeChannel = isActiveGlobal
+        ? 'active-global'
+        : isActiveRuleLeaf
+          ? 'active-rule'
+          : 'config-fallback';
       return data;
     } finally {
       if (switched) {
@@ -1650,7 +1741,7 @@
     return '';
   }
 
-  async function queryIPGeoExplicit(ip) {
+  async function queryIPGeoExplicit(ip, cacheTTLMs) {
     const targetIP = String(ip || '').trim();
     if (!targetIP) return null;
     if (isPrivateLANIP(targetIP)) {
@@ -1664,6 +1755,12 @@
         asn: '',
         isPrivate: true,
       };
+    }
+
+    const ttl = cacheTTLMs !== undefined ? cacheTTLMs : CACHE_TTL_FG_MS;
+    if (ttl > 0) {
+      const cached = readIPCache(targetIP, 'entGeo', ttl);
+      if (cached) return cached;
     }
 
     try {
@@ -1682,7 +1779,7 @@
           }
         }
         const cc = j.countryCode || '';
-        return {
+        const res = {
           ip: targetIP,
           country: j.country || '',
           countryCode: cc,
@@ -1693,6 +1790,8 @@
           ispDisplay: normalizeEntranceISP(j.isp || '', j.org || asnOrg || '', cc),
           asn,
         };
+        writeIPCache(targetIP, 'entGeo', res);
+        return res;
       }
     } catch (_) {}
 
@@ -1701,7 +1800,7 @@
       if (j && j.success !== false) {
         const conn = j.connection || {};
         const cc = j.country_code || '';
-        return {
+        const res = {
           ip: targetIP,
           country: j.country || '',
           countryCode: cc,
@@ -1712,6 +1811,8 @@
           ispDisplay: normalizeEntranceISP(conn.isp || '', conn.org || '', cc),
           asn: conn.asn ? 'AS' + conn.asn : '',
         };
+        writeIPCache(targetIP, 'entGeo', res);
+        return res;
       }
     } catch (_) {}
 
@@ -1719,7 +1820,7 @@
       const j = await fetchJSON('https://api.ip.sb/geoip/' + encodeURIComponent(targetIP), 3500);
       if (j && j.ip) {
         const cc = j.country_code || '';
-        return {
+        const res = {
           ip: targetIP,
           country: j.country || '',
           countryCode: cc,
@@ -1730,6 +1831,8 @@
           ispDisplay: normalizeEntranceISP(j.isp || '', j.organization || '', cc),
           asn: j.asn ? 'AS' + j.asn : '',
         };
+        writeIPCache(targetIP, 'entGeo', res);
+        return res;
       }
     } catch (_) {}
     return null;
@@ -1822,12 +1925,14 @@
     return lastMeta;
   }
 
-  async function runProbeWithEntranceCapture(nodeName, captureEnabled, probeFn) {
+  async function runProbeWithEntranceCapture(nodeName, captureEnabled, probeFn, opts) {
     if (!captureEnabled || !CFG.showEntrance) {
       const probe = await probeFn();
       return { probe, entrance: null };
     }
 
+    const options = opts || {};
+    const entCacheTTL = options.entCacheTTL !== undefined ? options.entCacheTTL : CACHE_TTL_FG_MS;
     let probeFinished = false;
     let controllerStatus = 'unknown';
     let matchedRecord = null;
@@ -1841,7 +1946,7 @@
         parsed.isIPv4 || parsed.isIPv6 ? Promise.resolve(parsed.host) : resolveDomainToIP(parsed.host),
         fetchControllerProxyMeta(leafNode || nodeName).catch(() => null),
       ]);
-      const geo = entranceIP ? await queryIPGeoExplicit(entranceIP).catch(() => null) : null;
+      const geo = entranceIP ? await queryIPGeoExplicit(entranceIP, entCacheTTL).catch(() => null) : null;
       return {
         status: 'ok',
         entranceHost: parsed.host,
@@ -1868,9 +1973,9 @@
     }
 
     const watcherPromise = (async () => {
-      const delays = [120, 180, 240, 300, 380, 480, 600, 750];
+      const delays = options.lightPoll ? [220, 620] : [150, 320, 620, 1050];
       for (const waitMs of delays) {
-        await new Promise((r) => setTimeout(r, waitMs));
+        await sleep(waitMs);
         if (matchedRecord || probeFinished) return;
         await trySnapshotOnce();
         if (matchedRecord || probeFinished || controllerStatus !== 'ok') return;
@@ -2275,8 +2380,8 @@
     const ch =
       probe.routeChannel === 'bridge'
         ? '⚡ 零切换直测 · ' + probe.elapsedMs + ' ms'
-        : probe.routeChannel === 'active-global'
-          ? '⚡ 当前全局直测 · ' + probe.elapsedMs + ' ms'
+        : probe.routeChannel === 'active-global' || probe.routeChannel === 'active-rule'
+          ? '⚡ 当前节点直测 · ' + probe.elapsedMs + ' ms'
           : '🔄 临时切换直测 (已还原) · ' + probe.elapsedMs + ' ms';
     return '<span style="color:' + COLORS.muted + '">' + esc(ch) + '</span>';
   }
@@ -2983,7 +3088,10 @@
 
       const [domestic, probeWrap] = await Promise.all([
         CFG.showDomestic ? queryDomesticDirect(false).catch(() => null) : Promise.resolve(null),
-        runProbeWithEntranceCapture('', true, () => executeModeProbe(undefined, 'panel')),
+        runProbeWithEntranceCapture('', true, () => executeModeProbe(undefined, 'panel'), {
+          lightPoll: true,
+          entCacheTTL: CACHE_TTL_BG_MS,
+        }),
       ]);
       const probe = probeWrap.probe;
       const entrance = probeWrap.entrance;
@@ -3044,16 +3152,20 @@
       return;
     }
     try {
+      // 轻度错峰退避 1.2s（配合客户端自身 2s 防抖），让内核节点握手、url-test 与前台请求优先通行
+      await sleep(1200);
+
       const routing = resolveActiveRoutingContext();
-      const [domestic, probeWrap] = await Promise.all([
+      // 第一阶段：仅发 1 个约 250B 极简落地请求 + 本地直连对比，若出口与直连均未变化则立即静默退出
+      const [domestic, landWrap] = await Promise.all([
         CFG.showDomestic ? queryDomesticDirect(false).catch(() => null) : Promise.resolve(null),
-        runProbeWithEntranceCapture('', CFG.showEntrance, () => executeModeProbe(undefined, 'panel')),
+        runProbeWithEntranceCapture('', CFG.showEntrance, () => queryLandingIPv4(undefined), {
+          lightPoll: true,
+          entCacheTTL: CACHE_TTL_BG_MS,
+        }),
       ]);
-      const probe = probeWrap.probe;
-      const entrance = probeWrap.entrance;
-      const landing = probe.landing || {};
-      const cf = probe.cfTrace;
-      const ipv6 = probe.ipv6;
+      const landing = landWrap.probe || {};
+      const entrance = landWrap.entrance;
 
       const domIP = (domestic && domestic.ip) || '';
       const landIP = landing.ip || '';
@@ -3072,7 +3184,20 @@
           JSON.stringify({ v: 4, domIP, landIP, cc, entIP, node: activeNode })
         );
 
-        const purity = await queryPurityIPAPI(landIP, undefined, Math.min(CFG.timeoutMs, 3800));
+        // 第二阶段：仅当出口确实变化时才按需串行补齐详情，且优先复用 6 小时本地 IP 缓存（固定住宅 IP 0 下载）
+        const isLandingCF =
+          String(landing.asn || '').toUpperCase() === 'AS13335' ||
+          /cloudflare/i.test(String(landing.isp || '') + ' ' + String(landing.org || ''));
+        const cf = isLandingCF ? await queryCloudflareTrace(undefined).catch(() => null) : null;
+        const bgp = await queryBGPUpstreams(landIP, undefined, CACHE_TTL_BG_MS).catch(() => null);
+        const purity = await queryPurityIPAPI(
+          landIP,
+          undefined,
+          Math.min(CFG.timeoutMs, 3800),
+          CACHE_TTL_BG_MS
+        );
+        const probe = { landing, bgp, cfTrace: cf, ipv6: null };
+
         const linkInfo = classifyLinkType({
           nodeName: activeNode,
           nodeInfo: null,
@@ -3106,11 +3231,11 @@
         exitLines.push(flag + ' 落地：' + maskIPString(landIP, CFG.maskIP) + ' (' + geo + ')');
         const asnText = [landing.asn, landing.isp || landing.org].filter(Boolean).join(' ');
         if (asnText) exitLines.push('🏢 归属：' + asnText);
-        if (probe.bgp) {
+        if (bgp) {
           exitLines.push(
             '🛣️ 上游：' +
-              probe.bgp.gradeShort +
-              (probe.bgp.shortNames ? ' · ' + probe.bgp.shortNames : '')
+              bgp.gradeShort +
+              (bgp.shortNames ? ' · ' + bgp.shortNames : '')
           );
         }
 
@@ -3125,15 +3250,9 @@
           if (pText) exitLines.push('🛡️ 属性：' + pText);
         }
 
-        // 仅在套用了 WARP 或启用了 IPv6 双栈等非常态特征时才展示，省略常态废话
-        const specialEdge = [];
         if (cf && (cf.warp === 'on' || cf.warp === 'plus')) {
-          specialEdge.push('WARP ' + (cf.warp === 'plus' ? 'Plus' : '开启'));
+          exitLines.push('⚡ 特性：WARP ' + (cf.warp === 'plus' ? 'Plus' : '开启'));
         }
-        if (CFG.checkIPv6 && ipv6 && ipv6.ip) {
-          specialEdge.push('IPv6 双栈');
-        }
-        if (specialEdge.length > 0) exitLines.push('⚡ 特性：' + specialEdge.join(' · '));
 
         const routeLines = [];
         const routeTarget =
