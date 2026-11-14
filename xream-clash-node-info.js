@@ -1,11 +1,11 @@
 /**
- * xream & Kelee Node Suite — ProjectClash/Clash-Client 全能节点检测套件 (v2.3.0)
+ * xream & Kelee Node Suite — ProjectClash/Clash-Client 全能节点检测套件 (v2.4.0)
  *
  * 深度融合：
  * 1. xream/scripts (ip-info / net-lsp-x / ip-whois / ip-score)
  * 2. 可莉插件仓库 (Node_detection_tool 流媒体&AI解锁 / WARP_Node_Query / NodeLinkCheck 代理链路)
  *
- * 专为 ProjectClash/Clash-Client (iOS / macOS) 三大独立长按菜单设计（零重叠、秒开排版）：
+ * 专为 ProjectClash/Clash-Client (iOS / macOS) 三大独立长按菜单设计（零重叠、高信噪比极简排版）：
  * - 🌐 节点链路与入口查询 (MODE=info)  : 本地直连 ➔ 中转入口(含ASN) ➔ 落地双栈 ➔ BGP上游骨干 ➔ CF边缘 & WARP
  * - 🛡️ 节点纯净度深度检测 (MODE=purity): 双 ISP 原生家宽血统 + 广播/原生判定 + BGP上游 + 三源风控/RBL审计
  * - 🎬 流媒体与 AI 解锁检测 (MODE=unlock): ChatGPT(Web+iOS) / Claude / Gemini / Netflix / YouTube / Disney+ / TikTok / 动画疯
@@ -2325,12 +2325,9 @@
           (entIP === l.ip || Boolean(probe.ipv6 && probe.ipv6.ip && entIP === probe.ipv6.ip));
         const portStr = !CFG.maskIP && entrance.entrancePort ? ':' + entrance.entrancePort : '';
         if (isDirect) {
-          lines.push(
-            '节点入口：<code>' +
-              esc(maskIPString(entIP, CFG.maskIP) + portStr) +
-              '</code> ' +
-              colorSpan('[直连无中转]', COLORS.cyan, true)
-          );
+          if (entHost && entHost !== entIP) {
+            lines.push('接入域名：<code>' + esc(maskDomainString(entHost, CFG.maskIP)) + '</code>');
+          }
         } else {
           const eg = entrance.geo;
           const regCityParts = eg ? deduplicateGeoParts([eg.region || eg.country, eg.city]) : [];
@@ -2360,24 +2357,22 @@
           }
         }
       } else if (entrance.status === 'unauthorized') {
-        lines.push('中转入口：' + colorSpan('待填密钥（模块设置中粘贴外部控制器密钥即可显示）', COLORS.warning, false));
+        lines.push('中转入口：' + colorSpan('待填外部控制器密钥', COLORS.warning, false));
       } else if (entrance.status === 'unreachable') {
         lines.push(
           '中转入口：<span style="color:' +
             COLORS.muted +
-            '">未开启（设置→客户端设置→外部控制器→本机 填密钥可查）</span>'
+            '">未开启（设置→客户端设置→外部控制器→本机）</span>'
         );
       } else if (entrance.status === 'not_found') {
         lines.push(
-          '中转入口：<span style="color:' +
-            COLORS.muted +
-            '">连接已快速释放（再次长按查询即可捕获实时入口 IP）</span>'
+          '中转入口：<span style="color:' + COLORS.muted + '">连接已释放（重测即可捕获）</span>'
         );
       }
     }
 
     lines.push(
-      '落地 IPv4：<code>' +
+      '落地出口：<code>' +
         esc(maskIPString(l.ip, CFG.maskIP)) +
         '</code> · ' +
         flag +
@@ -2391,8 +2386,6 @@
           '</code> ' +
           colorSpan('[双栈 ✓]', COLORS.success, true)
       );
-    } else if (CFG.checkIPv6) {
-      lines.push('落地 IPv6：<span style="color:' + COLORS.muted + '">未启用 (仅 IPv4)</span>');
     }
 
     lines.push(
@@ -2400,8 +2393,18 @@
         (l.asn ? '<code>' + esc(l.asn) + '</code> ' : '') +
         esc(l.isp || l.org || '未知')
     );
-    if (l.timezone) {
-      lines.push('落地时区：<code>' + esc(l.timezone) + '</code>');
+
+    if (cf) {
+      const coloDesc = cf.colo ? (cf.coloCity ? cf.colo + ' · ' + cf.coloCity : cf.colo) : '';
+      const warpTag =
+        cf.warp === 'plus'
+          ? colorSpan('[WARP+ 托管]', COLORS.purple, true)
+          : cf.warp === 'on'
+            ? colorSpan('[WARP 出站]', COLORS.warning, true)
+            : colorSpan('[原生直出]', COLORS.success, false);
+      lines.push(
+        'CF 边缘 ：' + (coloDesc ? '<code>' + esc(coloDesc) + '</code> ' : '') + warpTag
+      );
     }
 
     // 3. BGP 宣告前缀与全球上游骨干线路 (RIPE NCC RIS 实时路由表)
@@ -2409,20 +2412,16 @@
     if (bgp) {
       lines.push('');
       lines.push('<b>▸ BGP 路由与上游骨干</b>');
-      if (bgp.prefix) {
-        lines.push(
-          '宣告前缀：<code>' +
-            esc(bgp.prefix) +
-            '</code>' +
-            (bgp.originASN ? ' · 源 <code>' + esc(bgp.originASN) + '</code>' : '') +
-            ' <span style="color:' +
-            COLORS.muted +
-            '">(RIS ' +
-            bgp.peerCount +
-            ' 节点)</span>'
-        );
-      }
-      lines.push('BGP 评级：' + colorSpan(bgp.gradeLabel, levelColor(bgp.gradeLevel), true));
+      const diffOrigin =
+        bgp.originASN && l.asn && bgp.originASN.toUpperCase() !== String(l.asn).toUpperCase()
+          ? ' · 宣告 <code>' + esc(bgp.originASN) + '</code>'
+          : '';
+      lines.push(
+        'BGP 评级：' +
+          colorSpan(bgp.gradeLabel, levelColor(bgp.gradeLevel), true) +
+          (bgp.prefix ? ' · <code>' + esc(bgp.prefix) + '</code>' : '') +
+          diffOrigin
+      );
       if (bgp.aggregator && bgp.aggregator.asn) {
         lines.push(
           '聚合网关：' +
@@ -2441,29 +2440,6 @@
           })
           .join(' · ');
         lines.push((bgp.aggregator ? '穿透上游：' : '直连上游：') + upHtml);
-      }
-      if (bgp.ixpNames && bgp.ixpNames.length > 0) {
-        lines.push('交换中心：' + bgp.ixpNames.map((x) => esc(x)).join(' · '));
-      }
-    }
-
-    // 4. Cloudflare WARP 与边缘节点 (可莉 WARP节点查询移植)
-    if (cf) {
-      lines.push('');
-      lines.push('<b>▸ Cloudflare 边缘与 WARP</b>');
-      const warpBadge =
-        cf.warp === 'plus'
-          ? colorSpan('WARP+ 启用 (Cloudflare 托管出站)', COLORS.purple, true)
-          : cf.warp === 'on'
-            ? colorSpan('WARP 普通版 (套用 CF 免费出口)', COLORS.warning, true)
-            : colorSpan('未套用 WARP (节点原生直出)', COLORS.success, true);
-      lines.push('WARP 状态：' + warpBadge);
-      if (cf.colo) {
-        const coloDesc = cf.coloCity ? cf.colo + ' · ' + cf.coloCity : cf.colo;
-        const proto = [cf.http, cf.tls].filter(Boolean).join(' / ');
-        lines.push(
-          '边缘机房：<code>' + esc(coloDesc) + '</code>' + (proto ? ' (' + esc(proto) + ')' : '')
-        );
       }
     }
 
@@ -2546,34 +2522,18 @@
       }
       if (probe.bgp) {
         lines.push(
-          'BGP 评级：' + colorSpan(probe.bgp.gradeLabel, levelColor(probe.bgp.gradeLevel), true)
+          'BGP 评级：' +
+            colorSpan(probe.bgp.gradeLabel, levelColor(probe.bgp.gradeLevel), true) +
+            (probe.bgp.shortNames ? ' · <code>' + esc(probe.bgp.shortNames) + '</code>' : '')
         );
-        if (probe.bgp.shortNames) {
-          lines.push('上游骨干：<code>' + esc(probe.bgp.shortNames) + '</code>');
-        }
       }
 
       lines.push('');
-      lines.push('<b>▸ 三源风控与黑名单审计</b>');
+      lines.push('<b>▸ 风控与黑名单审计</b>');
       lines.push(
         '纯净指数：' +
           colorSpan(scoreBar(cleanScore) + ' ' + cleanScore + '分 · ' + rLabel, rColor, true)
       );
-      if (p.primaryScore) {
-        const s = p.primaryScore;
-        lines.push(
-          'ipapi 评分：' +
-            colorSpan(s.tagZh + (s.percentText ? ' (滥用率 ' + s.percentText + ')' : ''), levelColor(s.level), true)
-        );
-      }
-      if (pc) {
-        const pcColor = pc.proxy ? COLORS.warning : COLORS.success;
-        const pcText =
-          pc.typeZh +
-          (pc.risk !== null ? ' · 风险值 ' + pc.risk + '/100' : '') +
-          (pc.proxy ? ' · 检出代理特征' : ' · 未检出公开代理');
-        lines.push('ProxyCheck：' + colorSpan(pcText, pcColor, false));
-      }
       if (sc) {
         const blOk = sc.listedCount === 0;
         const blTxt = blOk
@@ -2586,26 +2546,15 @@
       const tags = [];
       if (f.datacenter) tags.push(colorSpan('IDC机房', COLORS.warning, true));
       if (f.vpn) tags.push(colorSpan('VPN特征', COLORS.warning, true));
-      if (f.proxy) tags.push(colorSpan('公开代理', COLORS.danger, true));
+      if (f.proxy || (pc && pc.proxy)) tags.push(colorSpan('公开代理', COLORS.danger, true));
       if (f.abuser) tags.push(colorSpan('历史滥用', COLORS.danger, true));
       if (f.tor) tags.push(colorSpan('Tor出口', COLORS.danger, true));
       if (f.crawler) tags.push(colorSpan('爬虫标记', COLORS.warning, true));
       if (f.mobile) tags.push(colorSpan('移动蜂窝', COLORS.success, true));
       lines.push(
         '风险画像：' +
-          (tags.length > 0 ? tags.join(' · ') : colorSpan('零风险标记 (极少弹验证码 ✓)', COLORS.success, true))
+          (tags.length > 0 ? tags.join(' · ') : colorSpan('零风险标记 ✓', COLORS.success, true))
       );
-
-      lines.push('');
-      const verdict =
-        combinedRisk <= 20 && p.lineageLevel === 'excellent'
-          ? { t: '🌟 顶级原生家宽，强烈推荐用于主力 AI 账号与严苛风控业务', c: COLORS.success }
-          : combinedRisk <= 40
-            ? { t: '👍 信誉良好，Google 搜索免验证码，适合日常流媒体与 AI 使用', c: COLORS.cyan }
-            : combinedRisk <= 65
-              ? { t: '⚠️ 共享机房特征明显，高频请求偶发 Cloudflare / Google 验证', c: COLORS.warning }
-              : { t: '🚨 欺诈/黑名单权重偏高，易触发风控封禁，仅建议普通浏览', c: COLORS.danger };
-      lines.push(colorSpan(verdict.t, verdict.c, false));
     } else {
       lines.push('');
       lines.push('<b>▸ 风控核验结果</b>');
@@ -3022,12 +2971,6 @@
     };
   }
 
-  function formatClockHMS() {
-    const d = new Date();
-    const pad = (n) => (n < 10 ? '0' + n : String(n));
-    return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
-  }
-
   async function handleModulePanel() {
     recoverDanglingPolicyIfAny();
     try {
@@ -3121,12 +3064,12 @@
       const prev = parsePrevEventState(storeRead(LAST_EVENT_KEY));
       const hasChanged =
         Boolean(landIP) &&
-        (!prev || prev.v !== 3 || prev.domIP !== domIP || prev.landIP !== landIP || prev.cc !== cc);
+        (!prev || prev.v !== 4 || prev.domIP !== domIP || prev.landIP !== landIP || prev.cc !== cc);
 
       if (hasChanged) {
         storeWrite(
           LAST_EVENT_KEY,
-          JSON.stringify({ v: 3, domIP, landIP, cc, entIP, node: activeNode })
+          JSON.stringify({ v: 4, domIP, landIP, cc, entIP, node: activeNode })
         );
 
         const purity = await queryPurityIPAPI(landIP, undefined, Math.min(CFG.timeoutMs, 3800));
@@ -3146,28 +3089,18 @@
         const landChanged = Boolean(prev && prev.landIP && landIP && prev.landIP !== landIP);
 
         let titleText = '🌐 网络出口已更新 · ' + flag + ' ' + regionLabel;
-        let changeText = '出口状态已更新';
         if (!prev || (!prev.domIP && !prev.landIP)) {
           titleText = '🌐 网络出口已就绪 · ' + flag + ' ' + regionLabel;
-          changeText = '首次记录当前出口';
-        } else if (domChanged && landChanged) {
-          titleText = '🌐 网络出口已更新 · ' + flag + ' ' + regionLabel;
-          changeText =
-            prev.cc && cc && prev.cc !== cc
-              ? '直连与代理均已变更 (' + getFlagEmoji(prev.cc) + ' ' + prev.cc + ' ➔ ' + flag + ' ' + cc + ')'
-              : '本地直连与代理落地均已变更';
         } else if (domChanged && !landChanged) {
           titleText = '🌐 网络环境已切换 · ' + flag + ' ' + regionLabel;
-          changeText = '本地网络已切换 (代理落地不变)';
         } else if (!domChanged && landChanged) {
           titleText = '🌐 代理出口已更新 · ' + flag + ' ' + regionLabel;
-          changeText =
-            prev.cc && cc && prev.cc !== cc
-              ? '代理落地已切换 (' + getFlagEmoji(prev.cc) + ' ' + prev.cc + ' ➔ ' + flag + ' ' + cc + ')'
-              : '代理落地 IP 已更新';
         }
 
-        const subtitleText = '🔀 ' + linkInfo.badge + (topo && topo.plain ? ' ｜ ' + topo.plain : '');
+        const showLinkBadge = linkInfo.code !== 'pending-controller';
+        const subtitleText = showLinkBadge
+          ? '🔀 ' + linkInfo.badge + (topo && topo.plain ? ' ｜ ' + topo.plain : '')
+          : '🔀 ' + ((topo && topo.plain) || linkInfo.badge);
 
         const exitLines = [];
         exitLines.push(flag + ' 落地：' + maskIPString(landIP, CFG.maskIP) + ' (' + geo + ')');
@@ -3192,17 +3125,15 @@
           if (pText) exitLines.push('🛡️ 属性：' + pText);
         }
 
-        const edgeParts = [];
-        if (cf && cf.colo) {
-          edgeParts.push('CF-' + cf.colo + (cf.coloCity ? ' (' + cf.coloCity + ')' : ''));
-        }
+        // 仅在套用了 WARP 或启用了 IPv6 双栈等非常态特征时才展示，省略常态废话
+        const specialEdge = [];
         if (cf && (cf.warp === 'on' || cf.warp === 'plus')) {
-          edgeParts.push('WARP ' + (cf.warp === 'plus' ? 'Plus' : '开启'));
+          specialEdge.push('WARP ' + (cf.warp === 'plus' ? 'Plus' : '开启'));
         }
-        if (CFG.checkIPv6) {
-          edgeParts.push(ipv6 && ipv6.ip ? 'IPv6 双栈' : '仅 IPv4');
+        if (CFG.checkIPv6 && ipv6 && ipv6.ip) {
+          specialEdge.push('IPv6 双栈');
         }
-        if (edgeParts.length > 0) exitLines.push('☁️ 边缘：' + edgeParts.join(' · '));
+        if (specialEdge.length > 0) exitLines.push('⚡ 特性：' + specialEdge.join(' · '));
 
         const routeLines = [];
         const routeTarget =
@@ -3211,10 +3142,6 @@
             : activeNode || routing.rootGroup;
         const strategyText = [routing.modeName, routeTarget].filter(Boolean).join(' · ');
         if (strategyText) routeLines.push('🧭 策略：' + strategyText);
-
-        routeLines.push(
-          '🔗 链路：' + linkInfo.badge + (linkInfo.detail ? ' · ' + linkInfo.detail : '')
-        );
 
         if (entIP && entIP !== landIP) {
           const eg = entrance.geo;
@@ -3232,9 +3159,8 @@
           routeLines.push('🇨🇳 直连：' + maskIPString(domIP, CFG.maskIP) + (domTag ? ' (' + domTag + ')' : ''));
         }
 
-        routeLines.push('🔄 变动：' + changeText + ' · ' + formatClockHMS());
-
-        const bodyText = exitLines.join('\n') + '\n\n' + routeLines.join('\n');
+        const bodyText =
+          routeLines.length > 0 ? exitLines.join('\n') + '\n\n' + routeLines.join('\n') : exitLines.join('\n');
         notify(titleText, subtitleText, bodyText);
       }
     } catch (e) {
