@@ -37,9 +37,10 @@ https://raw.githubusercontent.com/823155705/clash-client-node-info/main/xream-cl
 
 | 插件名称 | 功能简介 | 一键导入链接 |
 | :--- | :--- | :--- |
+| **全局开屏与广告联盟拦截** | 拦截穿山甲、优量汇、百青藤、快手联盟、Google Ads 等开屏与广告 SDK，轻量免装证书 | [`clash-ad-guard.plugin`](https://raw.githubusercontent.com/823155705/clash-client-node-info/main/plugins/clash-ad-guard.plugin) |
 | **HTTPDNS 拦截与防绕过** | 拦截微信/淘宝/B站/抖音/百度/网易等私自走 HTTPDNS，防分流失效与 DNS 泄露（免开解密） | [`kelee-httpdns-guard.plugin`](https://raw.githubusercontent.com/823155705/clash-client-node-info/main/plugins/kelee-httpdns-guard.plugin) |
 | **外部链接直跳解锁** | 自动跳过微信、QQ、知乎、微博、CSDN、掘金、简书外链安全拦截中转页，302 秒达目标网页 | [`kelee-link-unlock.plugin`](https://raw.githubusercontent.com/823155705/clash-client-node-info/main/plugins/kelee-link-unlock.plugin) |
-| **Google 防送中 & TF 解锁** | `google.cn` 自动跳转 `www.google.com`，并解除 TestFlight 安装测试版应用的区域限制 | [`kelee-region-redirect`](https://raw.githubusercontent.com/823155705/clash-client-node-info/main/plugins/kelee-google-tf-unlock.plugin) |
+| **Google 防送中 & TF 解锁** | `google.cn` 自动跳转 `www.google.com`，并解除 TestFlight 安装测试版应用的区域限制 | [`kelee-google-tf-unlock.plugin`](https://raw.githubusercontent.com/823155705/clash-client-node-info/main/plugins/kelee-google-tf-unlock.plugin) |
 
 ---
 
