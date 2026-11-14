@@ -7,7 +7,7 @@
 
 ---
 
-## 🚀 主模块：全能节点检测套件 (`v2.2.0`)
+## 🚀 主模块：全能节点检测套件 (`v2.3.0`)
 
 打开 **Clash-Client** → **模块** → 点击右上角 **`+`** 粘贴导入（或复制 [`xream-clash-node-info.plugin`](./xream-clash-node-info.plugin) 手动新建）：
 
@@ -19,8 +19,8 @@ https://raw.githubusercontent.com/823155705/clash-client-node-info/main/xream-cl
 
 | 菜单项 | 功能定位（互不重复、一屏展示） |
 | :--- | :--- |
-| 🌐 **节点链路与入口查询** | 同时展示 **链路走向**（`本地直连 ➔ 中转入口 ➔ 落地双栈 ➔ CF 边缘机房`）与 **11 种细分链路类型**（直连出境 / 跨境专线 IEPL·IPLC / 国内云 BGP 中转 / 国内运营商中转 / 链式代理 `dialer-proxy` / 海外跨国跳板 / 同区异网落地链 / 多 IP 直出 / CF CDN 优选 / WARP 隧道 / 内网网关） |
-| 🛡️ **节点纯净度深度检测** | 识别 **双 ISP 原生家宽 / 机房** 与 **原生 / 广播 IP**，融合 `ipapi.is` + `ProxyCheck` + `ip-score` **三源风控与 RBL 黑名单审计** |
+| 🌐 **节点链路与入口查询** | 展示 **链路走向**、**11 种细分链路类型**、**中转入口 IP + 归属地 + `[ASxxxx]` 编号**、**RIPE RIS 实时 BGP 上游骨干与线路评级**（自动识别电信 CN2 `AS4809` / 联通 9929 / 移动 CMIN2·CMI / 日本软银·IIJ / 国际 Tier-1 NTT·Cogent·Telia·PCCW·Lumen / HKIX 等并穿透 DMIT 等聚合网关），以及 **CF 边缘机房 & WARP 状态** |
+| 🛡️ **节点纯净度深度检测** | 识别 **双 ISP 原生家宽 / 机房**、**原生 / 广播 IP** 与 **BGP 上游骨干评级**，融合 `ipapi.is` + `ProxyCheck` + `ip-score` **三源风控与 RBL 黑名单审计** |
 | 🎬 **流媒体与 AI 解锁检测** | 并发实测 **ChatGPT (Web+iOS)**、**Claude**、**Gemini**、**Netflix**、**Disney+**、**YouTube Premium (防送中)**、**TikTok**、**动画疯** |
 
 > **附带能力**：

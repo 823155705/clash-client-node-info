@@ -1,13 +1,13 @@
 /**
- * xream & Kelee Node Suite — ProjectClash/Clash-Client 全能节点检测套件 (v2.2.0)
+ * xream & Kelee Node Suite — ProjectClash/Clash-Client 全能节点检测套件 (v2.3.0)
  *
  * 深度融合：
  * 1. xream/scripts (ip-info / net-lsp-x / ip-whois / ip-score)
  * 2. 可莉插件仓库 (Node_detection_tool 流媒体&AI解锁 / WARP_Node_Query / NodeLinkCheck 代理链路)
  *
  * 专为 ProjectClash/Clash-Client (iOS / macOS) 三大独立长按菜单设计（零重叠、秒开排版）：
- * - 🌐 节点链路与入口查询 (MODE=info)  : 本地直连 ➔ 中转入口 ➔ 落地双栈 ➔ Cloudflare 边缘 POP & WARP 识别
- * - 🛡️ 节点纯净度深度检测 (MODE=purity): 双 ISP 原生家宽血统 + 广播/原生判定 + 三源风控/RBL 黑名单交叉审计
+ * - 🌐 节点链路与入口查询 (MODE=info)  : 本地直连 ➔ 中转入口(含ASN) ➔ 落地双栈 ➔ BGP上游骨干 ➔ CF边缘 & WARP
+ * - 🛡️ 节点纯净度深度检测 (MODE=purity): 双 ISP 原生家宽血统 + 广播/原生判定 + BGP上游 + 三源风控/RBL审计
  * - 🎬 流媒体与 AI 解锁检测 (MODE=unlock): ChatGPT(Web+iOS) / Claude / Gemini / Netflix / YouTube / Disney+ / TikTok / 动画疯
  */
 
@@ -768,6 +768,320 @@
   }
 
   // ============================================================================
+  // 5B. BGP 宣告前缀与全球上游骨干网窥探引擎 (基于 RIPE NCC RIS 实时路由表)
+  // ============================================================================
+
+  const BGP_ASN_DB = {
+    // 中国大陆精品优化与三大骨干网
+    4809: { name: '电信 CN2', tier: 'cn-opt' },
+    23764: { name: '电信 CTGNet', tier: 'cn-opt' },
+    4134: { name: '电信 163', tier: 'cn-std' },
+    4812: { name: '上海电信', tier: 'cn-std' },
+    4847: { name: '北京电信', tier: 'cn-std' },
+    9929: { name: '联通 9929', tier: 'cn-opt' },
+    10099: { name: '联通 CUG', tier: 'cn-opt' },
+    4837: { name: '联通 4837', tier: 'cn-std' },
+    4808: { name: '北京联通', tier: 'cn-std' },
+    58807: { name: '移动 CMIN2', tier: 'cn-opt' },
+    58453: { name: '移动 CMI', tier: 'cn-opt' },
+    9808: { name: '移动骨干', tier: 'cn-std' },
+    56040: { name: '广东移动', tier: 'cn-std' },
+    56046: { name: '江苏移动', tier: 'cn-std' },
+    56048: { name: '北京移动', tier: 'cn-std' },
+    4538: { name: '教育网 CERNET', tier: 'cn-std' },
+    23910: { name: '教育网 CERNET2', tier: 'cn-opt' },
+    7497: { name: '科技网 CSTNET', tier: 'cn-std' },
+
+    // 国际顶级 Tier-1 骨干运营商
+    3356: { name: 'Lumen (Level3)', tier: 'tier1' },
+    1299: { name: 'Arelion (Telia)', tier: 'tier1' },
+    2914: { name: 'NTT', tier: 'tier1' },
+    174: { name: 'Cogent', tier: 'tier1' },
+    3257: { name: 'GTT', tier: 'tier1' },
+    6453: { name: 'Tata', tier: 'tier1' },
+    3491: { name: 'PCCW 电讯盈科', tier: 'tier1' },
+    6762: { name: 'Sparkle', tier: 'tier1' },
+    6461: { name: 'Zayo', tier: 'tier1' },
+    3320: { name: 'Deutsche Telekom', tier: 'tier1' },
+    5511: { name: 'Orange', tier: 'tier1' },
+    12956: { name: 'Telxius', tier: 'tier1' },
+    701: { name: 'Verizon', tier: 'tier1' },
+    7018: { name: 'AT&T', tier: 'tier1' },
+    6830: { name: 'Liberty Global', tier: 'tier1' },
+
+    // 亚太核心运营商与对华友好骨干
+    17676: { name: '日本软银 SoftBank', tier: 'apac-opt' },
+    4725: { name: '日本软银 ODN', tier: 'apac-opt' },
+    2497: { name: '日本 IIJ', tier: 'apac-opt' },
+    2516: { name: '日本 KDDI', tier: 'apac' },
+    4713: { name: '日本 NTT OCN', tier: 'apac' },
+    2527: { name: '日本 So-net', tier: 'apac' },
+    7506: { name: '日本 GMO', tier: 'apac' },
+    2500: { name: '日本 WIDE', tier: 'apac' },
+    4760: { name: '香港 HKT', tier: 'apac' },
+    9304: { name: '香港 HGC', tier: 'apac' },
+    9269: { name: '香港 HKBN', tier: 'apac' },
+    4515: { name: '香港 PCCW', tier: 'apac' },
+    10118: { name: '香港 CMHK', tier: 'apac' },
+    4609: { name: '澳门 CTM', tier: 'apac' },
+    3462: { name: '中华电信 HiNet', tier: 'apac' },
+    9924: { name: '台湾大哥大 TFN', tier: 'apac' },
+    4780: { name: '台湾远传 Seednet', tier: 'apac' },
+    4637: { name: 'Telstra 澳洲电讯', tier: 'apac' },
+    7473: { name: 'Singtel 新电信', tier: 'apac' },
+    4657: { name: 'StarHub 星和', tier: 'apac' },
+    24482: { name: 'SG.GS 新加坡骨干', tier: 'apac' },
+    18106: { name: 'ViewQwest', tier: 'apac' },
+    4766: { name: '韩国 KT', tier: 'apac' },
+    9318: { name: '韩国 SKB', tier: 'apac' },
+    3786: { name: '韩国 LG DACOM', tier: 'apac' },
+
+    // 知名互联网交换中心 (IXP)
+    4635: { name: '香港 HKIX', tier: 'ixp' },
+    4777: { name: '日本 JPIX', tier: 'ixp' },
+    58952: { name: 'SGIX 新加坡交换', tier: 'ixp' },
+    59105: { name: 'BBIX 亚太交换', tier: 'ixp' },
+    24115: { name: 'Equinix IX', tier: 'ixp' },
+
+    // 国际知名 Transit / 专线聚合 / 云厂商
+    6939: { name: 'HE', tier: 'transit' },
+    9002: { name: 'RETN', tier: 'transit' },
+    137409: { name: 'GSL Networks', tier: 'transit' },
+    33891: { name: 'Core-Backbone', tier: 'transit' },
+    906: { name: 'DMIT', tier: 'agg' },
+    54574: { name: 'DMIT 中国优化', tier: 'cn-opt' },
+    21859: { name: 'Zenlayer', tier: 'agg' },
+    3214: { name: 'xTom', tier: 'agg' },
+    924: { name: 'xTom', tier: 'agg' },
+    57695: { name: 'Misaka', tier: 'agg' },
+    40065: { name: 'CeraNetworks', tier: 'agg' },
+    136766: { name: 'Kirino', tier: 'agg' },
+    141995: { name: 'Kirino', tier: 'agg' },
+    13335: { name: 'Cloudflare', tier: 'cloud' },
+    16509: { name: 'AWS', tier: 'cloud' },
+    15169: { name: 'Google', tier: 'cloud' },
+    8075: { name: 'Microsoft Azure', tier: 'cloud' },
+    45102: { name: '阿里云国际', tier: 'cloud' },
+    37963: { name: '阿里云', tier: 'cloud' },
+    132203: { name: '腾讯云国际', tier: 'cloud' },
+    45090: { name: '腾讯云', tier: 'cloud' },
+    20473: { name: 'Vultr (Choopa)', tier: 'cloud' },
+    60068: { name: 'CDN77 (DataCamp)', tier: 'cloud' },
+    16276: { name: 'OVHcloud', tier: 'cloud' },
+    24940: { name: 'Hetzner', tier: 'cloud' },
+    14061: { name: 'DigitalOcean', tier: 'cloud' },
+    63949: { name: 'Akamai (Linode)', tier: 'cloud' },
+  };
+
+  function lookupBGPASN(asnNum) {
+    const n = Number(String(asnNum).replace(/^AS/i, ''));
+    if (!Number.isFinite(n) || n <= 0) return { num: 0, asn: '', name: '', tier: 'other' };
+    const rec = BGP_ASN_DB[n];
+    return {
+      num: n,
+      asn: 'AS' + n,
+      name: rec ? rec.name : '',
+      tier: rec ? rec.tier : 'other',
+    };
+  }
+
+  function parseBGPState(j) {
+    const data = (j && j.data) || {};
+    const routes = Array.isArray(data.bgp_state) ? data.bgp_state : [];
+    if (routes.length === 0) return null;
+
+    const prefix = String(data.resource || '');
+    const originCounts = new Map();
+    const hop1Counts = new Map();
+    const hop2ByHop1 = new Map();
+    const nearUpstreams = new Set();
+    const ixpSet = new Set();
+    let totalMultiHop = 0;
+
+    for (let i = 0; i < routes.length; i++) {
+      const rawPath = routes[i] && Array.isArray(routes[i].path) ? routes[i].path : [];
+      const path = [];
+      for (let k = 0; k < rawPath.length; k++) {
+        const v = rawPath[k];
+        if (typeof v === 'number' && v > 0 && path[path.length - 1] !== v) {
+          path.push(v);
+        }
+      }
+      if (path.length === 0) continue;
+
+      const origin = path[path.length - 1];
+      originCounts.set(origin, (originCounts.get(origin) || 0) + 1);
+
+      const ixpStart = Math.max(0, path.length - 3);
+      for (let k = ixpStart; k < path.length - 1; k++) {
+        if (lookupBGPASN(path[k]).tier === 'ixp') ixpSet.add(path[k]);
+      }
+
+      if (path.length >= 2) {
+        totalMultiHop++;
+        const h1 = path[path.length - 2];
+        hop1Counts.set(h1, (hop1Counts.get(h1) || 0) + 1);
+        nearUpstreams.add(h1);
+
+        if (path.length >= 3) {
+          const h2 = path[path.length - 3];
+          if (!hop2ByHop1.has(h1)) hop2ByHop1.set(h1, new Map());
+          const sub = hop2ByHop1.get(h1);
+          sub.set(h2, (sub.get(h2) || 0) + 1);
+
+          const h1Tier = lookupBGPASN(h1).tier;
+          if (h1Tier === 'agg' || h1Tier === 'other' || h1Tier === 'cloud') {
+            nearUpstreams.add(h2);
+            if (path.length >= 4 && (lookupBGPASN(h2).tier === 'agg' || h2 === 54574)) {
+              nearUpstreams.add(path[path.length - 4]);
+            }
+          }
+        }
+      }
+    }
+
+    const sortedOrigins = [...originCounts.entries()].sort((a, b) => b[1] - a[1]);
+    const originNum = sortedOrigins.length > 0 ? sortedOrigins[0][0] : 0;
+    const originInfo = lookupBGPASN(originNum);
+
+    if (totalMultiHop === 0) {
+      return {
+        prefix,
+        originASN: originInfo.asn,
+        originName: originInfo.name,
+        peerCount: routes.length,
+        gradeLabel: '🌐 Anycast 自治直连路由',
+        gradeShort: 'Anycast 自治直连',
+        gradeLevel: 'good',
+        aggregator: null,
+        upstreams: [],
+        shortNames: originInfo.name || originInfo.asn,
+        cnOptNames: [],
+        ixpNames: [],
+      };
+    }
+
+    const hop1Sorted = [...hop1Counts.entries()].sort((a, b) => b[1] - a[1]);
+    let effectiveSorted = hop1Sorted;
+    let effectiveTotal = totalMultiHop;
+    let aggregator = null;
+
+    if (hop1Sorted.length > 0) {
+      const [topAsn, topCnt] = hop1Sorted[0];
+      const topMeta = lookupBGPASN(topAsn);
+      const subMap = hop2ByHop1.get(topAsn);
+      const isCarrierOrTier1 = ['tier1', 'cn-opt', 'cn-std', 'apac-opt'].includes(topMeta.tier);
+      if (topCnt / totalMultiHop >= 0.82 && !isCarrierOrTier1 && subMap && subMap.size >= 2) {
+        aggregator = { asn: topMeta.asn, name: topMeta.name };
+        effectiveSorted = [...subMap.entries()].sort((a, b) => b[1] - a[1]);
+        effectiveTotal = 0;
+        for (const [, c] of effectiveSorted) effectiveTotal += c;
+      }
+    }
+
+    const upstreams = effectiveSorted.slice(0, 5).map(([asnNum, cnt]) => {
+      const meta = lookupBGPASN(asnNum);
+      const pct = Math.max(1, Math.round((cnt / Math.max(1, effectiveTotal)) * 100));
+      return {
+        asn: meta.asn,
+        name: meta.name,
+        tier: meta.tier,
+        pct,
+        display: (meta.name ? meta.name + ' ' : '') + '[' + meta.asn + '] ' + pct + '%',
+        short: meta.name || meta.asn,
+      };
+    });
+
+    const cnOptNames = [];
+    const apacOptNames = [];
+    const cnStdNames = [];
+    let tier1Count = 0;
+
+    for (const asnNum of nearUpstreams) {
+      const m = lookupBGPASN(asnNum);
+      if (m.tier === 'cn-opt' && m.name && !cnOptNames.includes(m.name)) cnOptNames.push(m.name);
+      else if (m.tier === 'apac-opt' && m.name && !apacOptNames.includes(m.name)) apacOptNames.push(m.name);
+      else if (m.tier === 'cn-std' && m.name && !cnStdNames.includes(m.name)) cnStdNames.push(m.name);
+    }
+    for (const u of upstreams) {
+      if (u.tier === 'tier1') tier1Count++;
+    }
+
+    const ixpNames = [...ixpSet]
+      .map((n) => {
+        const m = lookupBGPASN(n);
+        return m.name ? m.name + ' [' + m.asn + ']' : m.asn;
+      })
+      .slice(0, 3);
+
+    let gradeLabel = '🌐 国际标准 BGP 路由';
+    let gradeShort = '国际标准 BGP';
+    let gradeLevel = 'normal';
+
+    if (cnOptNames.length > 0) {
+      gradeLabel = '🚀 中国大陆优化 BGP (' + cnOptNames.join(' / ') + ')';
+      gradeShort = '中国优化 (' + cnOptNames.slice(0, 2).join('/') + ')';
+      gradeLevel = 'excellent';
+    } else if (apacOptNames.length > 0) {
+      gradeLabel = '⚡ 亚太对华友好骨干 (' + apacOptNames.join(' / ') + ')';
+      gradeShort = '亚太优化 (' + apacOptNames.slice(0, 2).join('/') + ')';
+      gradeLevel = 'good';
+    } else if (cnStdNames.length > 0) {
+      gradeLabel = '🇨🇳 三网普通直连 BGP (' + cnStdNames.join(' / ') + ')';
+      gradeShort = '三网直连 BGP';
+      gradeLevel = 'good';
+    } else if (tier1Count >= 2) {
+      gradeLabel = '🌐 国际多线 Tier-1 BGP';
+      gradeShort = '国际多线 Tier-1';
+      gradeLevel = 'normal';
+    } else if (tier1Count === 1) {
+      gradeLabel = '🌐 国际单线 Tier-1 BGP';
+      gradeShort = '国际 Tier-1';
+      gradeLevel = 'normal';
+    }
+
+    const shortNames = upstreams
+      .slice(0, 4)
+      .map((u) => u.short)
+      .join(' / ');
+
+    return {
+      prefix,
+      originASN: originInfo.asn,
+      originName: originInfo.name,
+      peerCount: routes.length,
+      gradeLabel,
+      gradeShort,
+      gradeLevel,
+      aggregator,
+      upstreams,
+      shortNames,
+      cnOptNames,
+      ixpNames,
+    };
+  }
+
+  async function queryBGPUpstreams(ip, targetNode) {
+    if (!ip || isPrivateLANIP(ip)) return null;
+    const url = 'https://stat.ripe.net/data/bgp-state/data.json?resource=' + encodeURIComponent(ip);
+    const bgpTimeout = Math.min(CFG.timeoutMs, 4200);
+    try {
+      const j = await fetchJSON(url, bgpTimeout);
+      const parsed = parseBGPState(j);
+      if (parsed) return parsed;
+    } catch (_) {}
+    if (targetNode) {
+      try {
+        const j = await fetchJSON(buildOutboundOpts(url, targetNode), bgpTimeout);
+        return parseBGPState(j);
+      } catch (e) {
+        log('bgp-state error: ' + (e.message || e));
+      }
+    }
+    return null;
+  }
+
+  // ============================================================================
   // 6. 流媒体与 AI 服务解锁探测引擎 (移植自可莉仓库 Node_detection_tool)
   // ============================================================================
 
@@ -1032,10 +1346,14 @@
     const startedAt = Date.now();
     const runMode = normalizeMode(mode);
 
-    // 模式 A: 节点链路与入口查询 (极速并发：落地 IPv4 + IPv6 + Cloudflare WARP & POP)
+    // 模式 A: 节点链路与入口查询 (极速并发：落地 IPv4➔BGP上游 + IPv6 + Cloudflare WARP & POP)
     if (runMode === 'info' || runMode === 'panel') {
-      const [landing, ipv6, cfTrace] = await Promise.all([
-        queryLandingIPv4(targetNode),
+      const landingWithBGP = queryLandingIPv4(targetNode).then(async (landing) => {
+        const bgp = await queryBGPUpstreams(landing.ip, targetNode).catch(() => null);
+        return { landing, bgp };
+      });
+      const [lb, ipv6, cfTrace] = await Promise.all([
+        landingWithBGP,
         CFG.checkIPv6 ? queryLandingIPv6(targetNode) : Promise.resolve(null),
         queryCloudflareTrace(targetNode),
       ]);
@@ -1043,19 +1361,21 @@
         ok: true,
         mode: runMode,
         elapsedMs: Date.now() - startedAt,
-        landing,
+        landing: lb.landing,
+        bgp: lb.bgp,
         ipv6,
         cfTrace,
       };
     }
 
-    // 模式 B: 节点纯净度深度检测 (三源交叉风控：ipapi.is + proxycheck.io + ip-score RBL)
+    // 模式 B: 节点纯净度深度检测 (三源交叉风控：ipapi.is + proxycheck.io + ip-score RBL + BGP上游)
     if (runMode === 'purity') {
       const landing = await queryLandingIPv4(targetNode);
-      const [purity, proxyCheck, ipScore] = await Promise.all([
+      const [purity, proxyCheck, ipScore, bgp] = await Promise.all([
         queryPurityIPAPI(landing.ip, targetNode),
         queryProxyCheckIO(landing.ip, targetNode),
         queryIPScoreDeep(targetNode),
+        queryBGPUpstreams(landing.ip, targetNode).catch(() => null),
       ]);
       return {
         ok: true,
@@ -1065,6 +1385,7 @@
         purity,
         proxyCheck,
         ipScore,
+        bgp,
       };
     }
 
@@ -1390,6 +1711,24 @@
           org: conn.org || '',
           ispDisplay: normalizeEntranceISP(conn.isp || '', conn.org || '', cc),
           asn: conn.asn ? 'AS' + conn.asn : '',
+        };
+      }
+    } catch (_) {}
+
+    try {
+      const j = await fetchJSON('https://api.ip.sb/geoip/' + encodeURIComponent(targetIP), 3500);
+      if (j && j.ip) {
+        const cc = j.country_code || '';
+        return {
+          ip: targetIP,
+          country: j.country || '',
+          countryCode: cc,
+          region: j.region || '',
+          city: j.city || '',
+          isp: j.isp || '',
+          org: j.organization || '',
+          ispDisplay: normalizeEntranceISP(j.isp || '', j.organization || '', cc),
+          asn: j.asn ? 'AS' + j.asn : '',
         };
       }
     } catch (_) {}
@@ -2007,12 +2346,14 @@
             : '';
           const nonTransitCodes = new Set(['overseas-direct-warp', 'same-asn-multi-ip', 'cf-warp-tunnel']);
           const entLabel = nonTransitCodes.has(linkInfo.code) ? '拨号入口' : '中转入口';
+          const entASNHtml = eg && eg.asn ? ' <code>[' + esc(eg.asn) + ']</code>' : '';
           lines.push(
             entLabel +
               '：<code>' +
               esc(maskIPString(entIP || entHost, CFG.maskIP) + portStr) +
               '</code>' +
-              (eGeo ? ' · ' + esc(eGeo) : '')
+              (eGeo ? ' · ' + esc(eGeo) : '') +
+              entASNHtml
           );
           if (entHost && entHost !== entIP) {
             lines.push('入口域名：<code>' + esc(maskDomainString(entHost, CFG.maskIP)) + '</code>');
@@ -2063,7 +2404,50 @@
       lines.push('落地时区：<code>' + esc(l.timezone) + '</code>');
     }
 
-    // 3. Cloudflare WARP 与边缘节点 (可莉 WARP节点查询移植)
+    // 3. BGP 宣告前缀与全球上游骨干线路 (RIPE NCC RIS 实时路由表)
+    const bgp = probe.bgp;
+    if (bgp) {
+      lines.push('');
+      lines.push('<b>▸ BGP 路由与上游骨干</b>');
+      if (bgp.prefix) {
+        lines.push(
+          '宣告前缀：<code>' +
+            esc(bgp.prefix) +
+            '</code>' +
+            (bgp.originASN ? ' · 源 <code>' + esc(bgp.originASN) + '</code>' : '') +
+            ' <span style="color:' +
+            COLORS.muted +
+            '">(RIS ' +
+            bgp.peerCount +
+            ' 节点)</span>'
+        );
+      }
+      lines.push('BGP 评级：' + colorSpan(bgp.gradeLabel, levelColor(bgp.gradeLevel), true));
+      if (bgp.aggregator && bgp.aggregator.asn) {
+        lines.push(
+          '聚合网关：' +
+            (bgp.aggregator.name ? esc(bgp.aggregator.name) + ' ' : '') +
+            '<code>[' +
+            esc(bgp.aggregator.asn) +
+            ']</code>'
+        );
+      }
+      if (bgp.upstreams && bgp.upstreams.length > 0) {
+        const upHtml = bgp.upstreams
+          .slice(0, 4)
+          .map((u) => {
+            const namePart = u.name ? esc(u.name) + ' ' : '';
+            return namePart + '<code>[' + esc(u.asn) + ']</code> ' + u.pct + '%';
+          })
+          .join(' · ');
+        lines.push((bgp.aggregator ? '穿透上游：' : '直连上游：') + upHtml);
+      }
+      if (bgp.ixpNames && bgp.ixpNames.length > 0) {
+        lines.push('交换中心：' + bgp.ixpNames.map((x) => esc(x)).join(' · '));
+      }
+    }
+
+    // 4. Cloudflare WARP 与边缘节点 (可莉 WARP节点查询移植)
     if (cf) {
       lines.push('');
       lines.push('<b>▸ Cloudflare 边缘与 WARP</b>');
@@ -2159,6 +2543,14 @@
             '</code>' +
             (p.rir ? ' · <code>' + esc(p.rir) + '</code>' : '')
         );
+      }
+      if (probe.bgp) {
+        lines.push(
+          'BGP 评级：' + colorSpan(probe.bgp.gradeLabel, levelColor(probe.bgp.gradeLevel), true)
+        );
+        if (probe.bgp.shortNames) {
+          lines.push('上游骨干：<code>' + esc(probe.bgp.shortNames) + '</code>');
+        }
       }
 
       lines.push('');
@@ -2344,10 +2736,12 @@
             entrance.geo.isPrivate ? '🏠' : getFlagEmoji(entrance.geo.countryCode),
             deduplicateGeoParts([entrance.geo.region || entrance.geo.country, entrance.geo.city]).join(''),
             entrance.geo.ispDisplay || entrance.geo.isp || entrance.geo.org,
+            entrance.geo.asn ? '[' + entrance.geo.asn + ']' : '',
           ]
             .filter(Boolean)
             .join(' ')
         : '';
+    const bgp = infoProbe.bgp;
     return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -2396,6 +2790,8 @@
     <div class="row"><span class="k">落地 IPv4</span><span class="v"><code>${esc(maskIPString(l.ip, CFG.maskIP))}</code></span></div>
     <div class="row"><span class="k">位置</span><span class="v">${flag} ${esc(geo || l.countryCode || '-')}</span></div>
     <div class="row"><span class="k">运营商</span><span class="v">${esc([l.asn, l.isp || l.org].filter(Boolean).join(' '))}</span></div>
+    ${bgp ? `<div class="row"><span class="k">BGP 评级</span><span class="v">${esc(bgp.gradeLabel)}</span></div>` : ''}
+    ${bgp && bgp.upstreams && bgp.upstreams.length > 0 ? `<div class="row"><span class="k">${bgp.aggregator ? '穿透上游' : '直连上游'}</span><span class="v">${esc(bgp.upstreams.slice(0, 4).map((u) => u.display).join(' · '))}</span></div>` : ''}
     ${cf ? `<div class="row"><span class="k">CF 边缘 / WARP</span><span class="v"><code>${esc(cf.colo + (cf.coloCity ? '·' + cf.coloCity : ''))}</code> · WARP ${esc(cf.warp)}</span></div>` : ''}
   </div>
   ${purity ? `<div class="card"><h2>🛡️ 纯净度评估</h2>
@@ -2666,13 +3062,22 @@
       }
       if (entrance && entrance.status === 'ok' && entrance.entranceIP && entrance.entranceIP !== l.ip) {
         const eg = entrance.geo;
-        const eTxt = eg ? [eg.city || eg.region || eg.country, eg.ispDisplay || eg.isp].filter(Boolean).join(' ') : '';
+        const eTxt = eg
+          ? [eg.city || eg.region || eg.country, eg.ispDisplay || eg.isp, eg.asn]
+              .filter(Boolean)
+              .join(' ')
+          : '';
         lines.push('入口：' + maskIPString(entrance.entranceIP, CFG.maskIP) + (eTxt ? ' (' + eTxt + ')' : ''));
       }
       const flag = getFlagEmoji(l.countryCode);
       const geo = deduplicateGeoParts([l.country, l.city]).join(' ');
       lines.push('落地：' + maskIPString(l.ip, CFG.maskIP) + ' (' + flag + ' ' + (geo || l.countryCode || '-') + ')');
       lines.push('网络：' + [l.asn, l.isp || l.org].filter(Boolean).join(' ') + (cf && cf.colo ? ' · CF-' + cf.colo : ''));
+      if (probe.bgp) {
+        lines.push(
+          '上游：' + probe.bgp.gradeShort + (probe.bgp.shortNames ? ' · ' + probe.bgp.shortNames : '')
+        );
+      }
 
       $done({
         title: '当前网络出口信息',
@@ -2716,12 +3121,12 @@
       const prev = parsePrevEventState(storeRead(LAST_EVENT_KEY));
       const hasChanged =
         Boolean(landIP) &&
-        (!prev || prev.v !== 2 || prev.domIP !== domIP || prev.landIP !== landIP || prev.cc !== cc);
+        (!prev || prev.v !== 3 || prev.domIP !== domIP || prev.landIP !== landIP || prev.cc !== cc);
 
       if (hasChanged) {
         storeWrite(
           LAST_EVENT_KEY,
-          JSON.stringify({ v: 2, domIP, landIP, cc, entIP, node: activeNode })
+          JSON.stringify({ v: 3, domIP, landIP, cc, entIP, node: activeNode })
         );
 
         const purity = await queryPurityIPAPI(landIP, undefined, Math.min(CFG.timeoutMs, 3800));
@@ -2768,6 +3173,13 @@
         exitLines.push(flag + ' 落地：' + maskIPString(landIP, CFG.maskIP) + ' (' + geo + ')');
         const asnText = [landing.asn, landing.isp || landing.org].filter(Boolean).join(' ');
         if (asnText) exitLines.push('🏢 归属：' + asnText);
+        if (probe.bgp) {
+          exitLines.push(
+            '🛣️ 上游：' +
+              probe.bgp.gradeShort +
+              (probe.bgp.shortNames ? ' · ' + probe.bgp.shortNames : '')
+          );
+        }
 
         if (purity) {
           const cleanLineage = String(purity.lineageLabel || '')
@@ -2806,9 +3218,10 @@
 
         if (entIP && entIP !== landIP) {
           const eg = entrance.geo;
-          const eTxt = eg
+          const eCore = eg
             ? deduplicateGeoParts([eg.city || eg.region || eg.country, eg.ispDisplay || eg.isp]).join(' ')
             : '';
+          const eTxt = [eCore, eg && eg.asn].filter(Boolean).join(' · ');
           routeLines.push('🚀 入口：' + maskIPString(entIP, CFG.maskIP) + (eTxt ? ' (' + eTxt + ')' : ''));
         }
 
