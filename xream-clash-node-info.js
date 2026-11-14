@@ -94,10 +94,28 @@
     return Math.min(maxVal, Math.max(minVal, n));
   }
 
+  function parseControllerPort(raw, defaultPort) {
+    const s = String(raw || '').trim();
+    if (!s) return defaultPort;
+    const colonMatch = s.match(/:(\d{2,5})\/?$/);
+    if (colonMatch) return toNum(colonMatch[1], defaultPort, 1, 65535);
+    return toNum(s, defaultPort, 1, 65535);
+  }
+
+  function normalizeSecret(raw) {
+    return String(raw || '')
+      .trim()
+      .replace(/^Bearer\s+/i, '')
+      .trim();
+  }
+
   const ARGS = parseArguments(typeof $argument !== 'undefined' ? $argument : '');
   const CFG = {
     mode: String(ARGS.MODE || 'basic').toLowerCase(),
     showDomestic: toBool(ARGS.SHOW_DOMESTIC, true),
+    showEntrance: toBool(ARGS.SHOW_ENTRANCE, true),
+    controllerPort: parseControllerPort(ARGS.CONTROLLER_PORT, 9090),
+    controllerSecret: normalizeSecret(ARGS.CONTROLLER_SECRET),
     checkPurity: toBool(ARGS.CHECK_PURITY, true),
     checkIPv6: toBool(ARGS.CHECK_IPV6, true),
     maskIP: toBool(ARGS.MASK_IP, false),
@@ -158,8 +176,8 @@
     // Loon 家族 ($loon 存在) 下 $httpClient.timeout 按毫秒解析 (value / 1000)，而 Surge/Stash 家族按秒解析
     const isLoonRuntime = typeof $loon !== 'undefined';
     reqOpts.timeout = isLoonRuntime
-      ? Math.max(2000, Math.round(timeoutMs))
-      : Math.max(2, Math.ceil(timeoutMs / 1000));
+      ? Math.max(800, Math.round(timeoutMs))
+      : Math.max(1, Math.ceil(timeoutMs / 1000));
 
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -255,6 +273,13 @@
     return '<span style="color:' + hex + weight + '">' + esc(text) + '</span>';
   }
 
+  function maskDomainString(domain, enabled) {
+    if (!domain || !enabled) return domain || '-';
+    const parts = String(domain).trim().split('.');
+    if (parts.length <= 1) return '***';
+    return '***.***.' + parts[parts.length - 1];
+  }
+
   function normalizeCNISP(raw) {
     const s = String(raw || '');
     if (/电信|telecom|chinanet|ctcc/i.test(s)) return '中国电信';
@@ -263,6 +288,22 @@
     if (/广电|CBN|cable/i.test(s)) return '中国广电';
     if (/教育|cernet/i.test(s)) return '中国教育网';
     return s.trim();
+  }
+
+  function normalizeEntranceISP(rawISP, rawOrg, countryCode) {
+    const combined = [rawISP, rawOrg].filter(Boolean).join(' ');
+    if (/aliyun|alibaba|阿里云|万网/i.test(combined)) return '阿里云 BGP';
+    if (/tencent|qcloud|腾讯云/i.test(combined)) return '腾讯云 BGP';
+    if (/huawei|华为云/i.test(combined)) return '华为云 BGP';
+    if (/ucloud|优刻得/i.test(combined)) return 'UCloud BGP';
+    if (/volcengine|bytedance|火山引擎/i.test(combined)) return '火山引擎 BGP';
+    if (/baidu|百度/i.test(combined)) return '百度智能云';
+    if (/jdcloud|京东/i.test(combined)) return '京东云';
+    if (String(countryCode || '').toUpperCase() === 'CN') {
+      const cn = normalizeCNISP(combined);
+      if (cn !== combined.trim()) return cn;
+    }
+    return String(rawISP || rawOrg || '').trim();
   }
 
   function deduplicateGeoParts(parts) {
@@ -871,6 +912,404 @@
   }
 
   // ============================================================================
+  // 5B. 节点中转入口捕获引擎 (配合「外部控制器 -> 本机」实时抓取 remoteDestination)
+  // ============================================================================
+
+  function isIPv4Literal(s) {
+    return /^\d{1,3}(\.\d{1,3}){3}$/.test(String(s || '').trim());
+  }
+
+  function isIPv6Literal(s) {
+    const v = String(s || '').trim();
+    return v.includes(':') && /^[0-9a-fA-F:]+$/.test(v);
+  }
+
+  function isBogusEntranceIP(ip) {
+    const s = String(ip || '').trim().toLowerCase();
+    if (!s) return true;
+    if (
+      s === '0.0.0.0' ||
+      s === '::' ||
+      s === '::1' ||
+      s.startsWith('127.') ||
+      s.startsWith('198.18.') ||
+      s.startsWith('198.19.') ||
+      s === '198.51.100.88'
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function isPrivateLANIP(ip) {
+    const s = String(ip || '').trim().toLowerCase();
+    if (!s) return false;
+    if (s.startsWith('10.') || s.startsWith('192.168.')) return true;
+    const m172 = s.match(/^172\.(\d{1,3})\./);
+    if (m172 && Number(m172[1]) >= 16 && Number(m172[1]) <= 31) return true;
+    const m100 = s.match(/^100\.(\d{1,3})\./);
+    if (m100 && Number(m100[1]) >= 64 && Number(m100[1]) <= 127) return true;
+    if (s.startsWith('fc') || s.startsWith('fd') || s.startsWith('fe80:')) return true;
+    return false;
+  }
+
+  function parseHostPort(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return null;
+    let host = '';
+    let port = '';
+
+    if (s.startsWith('[')) {
+      const closeIdx = s.indexOf(']');
+      if (closeIdx > 1) {
+        host = s.slice(1, closeIdx);
+        const rest = s.slice(closeIdx + 1);
+        if (rest.startsWith(':')) port = rest.slice(1);
+      } else {
+        host = s.replace(/^\[|\]$/g, '');
+      }
+    } else {
+      const firstColon = s.indexOf(':');
+      const lastColon = s.lastIndexOf(':');
+      if (firstColon > 0 && firstColon === lastColon) {
+        host = s.slice(0, firstColon);
+        port = s.slice(firstColon + 1);
+      } else {
+        host = s;
+      }
+    }
+
+    host = host.trim();
+    port = port.trim();
+    if (!host) return null;
+
+    const v4 = isIPv4Literal(host);
+    const v6 = !v4 && isIPv6Literal(host);
+    if ((v4 || v6) && isBogusEntranceIP(host)) return null;
+    if (!v4 && !v6 && host.toLowerCase() === BRIDGE_HOST) return null;
+
+    return { host, port, isIPv4: v4, isIPv6: v6 };
+  }
+
+  function buildControllerHeaders() {
+    const h = { Accept: 'application/json' };
+    if (CFG.controllerSecret) {
+      h.Authorization = 'Bearer ' + CFG.controllerSecret;
+    }
+    return h;
+  }
+
+  async function resolveDomainToIP(domain) {
+    const d = String(domain || '').trim();
+    if (!d) return '';
+
+    // 通道 1: Clash-Client Loon 原生 $dns.query (直通 clash.sock 内核 DNS)
+    if (typeof $dns !== 'undefined' && $dns && typeof $dns.query === 'function') {
+      try {
+        const ip = await new Promise((resolve) => {
+          let done = false;
+          const timer = setTimeout(() => {
+            if (!done) {
+              done = true;
+              resolve('');
+            }
+          }, 2400);
+          try {
+            $dns.query({ domain: d, timeout: 2200 }, (err, data) => {
+              if (done) return;
+              done = true;
+              clearTimeout(timer);
+              if (err || !data || !Array.isArray(data.answers)) {
+                resolve('');
+                return;
+              }
+              for (const ans of data.answers) {
+                const val = ans && ans.value ? String(ans.value).trim() : '';
+                if ((isIPv4Literal(val) || isIPv6Literal(val)) && !isBogusEntranceIP(val)) {
+                  resolve(val);
+                  return;
+                }
+              }
+              resolve('');
+            });
+          } catch (_) {
+            if (!done) {
+              done = true;
+              clearTimeout(timer);
+              resolve('');
+            }
+          }
+        });
+        if (ip) return ip;
+      } catch (_) {}
+    }
+
+    // 通道 2: Mihomo 本机外部控制器 /dns/query
+    try {
+      const url =
+        'http://127.0.0.1:' +
+        CFG.controllerPort +
+        '/dns/query?name=' +
+        encodeURIComponent(d) +
+        '&type=A';
+      const j = await fetchJSON({ url, headers: buildControllerHeaders() }, 1800);
+      if (j && Array.isArray(j.Answer)) {
+        for (const ans of j.Answer) {
+          const val = ans && ans.data ? String(ans.data).trim() : '';
+          if ((isIPv4Literal(val) || isIPv6Literal(val)) && !isBogusEntranceIP(val)) {
+            return val;
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 通道 3: 阿里公共 DoH JSON (纯 IP 直连免递归)
+    try {
+      const j = await fetchJSON(
+        'https://223.5.5.5/resolve?name=' + encodeURIComponent(d) + '&type=1',
+        2500
+      );
+      if (j && Array.isArray(j.Answer)) {
+        for (const ans of j.Answer) {
+          const val = ans && ans.data ? String(ans.data).trim() : '';
+          if (isIPv4Literal(val) && !isBogusEntranceIP(val)) {
+            return val;
+          }
+        }
+      }
+    } catch (_) {}
+
+    return '';
+  }
+
+  /**
+   * 显式按指定 IP 查询归属地与运营商（结果与当前请求走哪条出站无关）
+   */
+  async function queryIPGeoExplicit(ip) {
+    const targetIP = String(ip || '').trim();
+    if (!targetIP) return null;
+
+    if (isPrivateLANIP(targetIP)) {
+      return {
+        ip: targetIP,
+        country: '局域网 / 专网网关',
+        countryCode: '',
+        region: '',
+        city: '',
+        isp: '内网中转入口 (LAN / Tailscale / CGNAT)',
+        ispDisplay: '局域网 / 内网网关',
+        asn: '',
+        isPrivate: true,
+      };
+    }
+
+    // 源 1: ip-api.com 指定 IP 中文归属地
+    try {
+      const j = await fetchJSON(
+        'http://ip-api.com/json/' + encodeURIComponent(targetIP) + '?fields=66842623&lang=zh-CN',
+        4000
+      );
+      if (j && j.status === 'success') {
+        let asn = '';
+        let asnOrg = '';
+        if (j.as) {
+          const m = String(j.as).match(/^(AS\d+)\s*(.*)$/i);
+          if (m) {
+            asn = m[1].toUpperCase();
+            asnOrg = m[2] || j.asname || '';
+          }
+        }
+        const cc = j.countryCode || '';
+        const rawISP = j.isp || '';
+        const rawOrg = j.org || asnOrg || '';
+        return {
+          ip: targetIP,
+          country: j.country || '',
+          countryCode: cc,
+          region: j.regionName || '',
+          city: j.city || '',
+          isp: rawISP,
+          org: rawOrg,
+          ispDisplay: normalizeEntranceISP(rawISP, rawOrg, cc),
+          asn: asn,
+          hosting: Boolean(j.hosting),
+        };
+      }
+    } catch (_) {}
+
+    // 源 2: ipwho.is 指定 IP 中文回退
+    try {
+      const j = await fetchJSON(
+        'https://ipwho.is/' + encodeURIComponent(targetIP) + '?lang=zh-CN',
+        4000
+      );
+      if (j && j.success !== false) {
+        const conn = j.connection || {};
+        const cc = j.country_code || '';
+        const rawISP = conn.isp || '';
+        const rawOrg = conn.org || '';
+        return {
+          ip: targetIP,
+          country: j.country || '',
+          countryCode: cc,
+          region: j.region || '',
+          city: j.city || '',
+          isp: rawISP,
+          org: rawOrg,
+          ispDisplay: normalizeEntranceISP(rawISP, rawOrg, cc),
+          asn: conn.asn ? 'AS' + conn.asn : '',
+          hosting: Boolean(j.security && j.security.hosting),
+        };
+      }
+    } catch (_) {}
+
+    return null;
+  }
+
+  async function fetchControllerConnectionsSnapshot() {
+    const url = 'http://127.0.0.1:' + CFG.controllerPort + '/connections';
+    try {
+      const res = await httpRequest('get', { url, headers: buildControllerHeaders() }, 1200);
+      if (res.status === 401 || res.status === 403) {
+        return { status: 'unauthorized', connections: [] };
+      }
+      if (res.status >= 200 && res.status < 300) {
+        const j = JSON.parse(res.body.trim() || '{}');
+        return {
+          status: 'ok',
+          connections: Array.isArray(j.connections) ? j.connections : [],
+        };
+      }
+      return { status: 'unreachable', connections: [] };
+    } catch (_) {
+      return { status: 'unreachable', connections: [] };
+    }
+  }
+
+  function findMatchingConnection(connections, nodeName) {
+    if (!Array.isArray(connections) || connections.length === 0) return null;
+    const probeHostRe = /(ip-api\.com|ip\.sb|ipwho\.is|ipinfo\.io|ipapi\.is|ip-score\.com|ipw\.cn)$/i;
+
+    const sorted = connections.slice().sort((a, b) => {
+      const ta = a && a.start ? Date.parse(a.start) || 0 : 0;
+      const tb = b && b.start ? Date.parse(b.start) || 0 : 0;
+      return tb - ta;
+    });
+
+    // 优先：精确匹配 chains 包含目标节点名或 specialProxy === nodeName
+    if (nodeName) {
+      for (const c of sorted) {
+        if (!c || !c.metadata) continue;
+        const parsed = parseHostPort(c.metadata.remoteDestination);
+        if (!parsed) continue;
+        const chains = Array.isArray(c.chains) ? c.chains : [];
+        if (chains.includes(nodeName) || c.metadata.specialProxy === nodeName) {
+          return { conn: c, parsed };
+        }
+      }
+    }
+
+    // 次选：匹配正在访问探测域名的代理活跃连接（适配模块详情 [Panel] 或策略组嵌套场景）
+    for (const c of sorted) {
+      if (!c || !c.metadata) continue;
+      const host = String(c.metadata.host || '');
+      if (!probeHostRe.test(host)) continue;
+      const chains = Array.isArray(c.chains) ? c.chains : [];
+      if (chains.length === 0 || chains[0] === 'DIRECT' || chains[0] === 'REJECT') continue;
+      const parsed = parseHostPort(c.metadata.remoteDestination);
+      if (!parsed) continue;
+      return { conn: c, parsed };
+    }
+
+    return null;
+  }
+
+  /**
+   * 在节点探测期间并发监听 Mihomo 本机外部控制器 /connections，零额外等待抓取节点真实入口 IP
+   */
+  async function runProbeWithEntranceCapture(nodeName, probeFn) {
+    if (!CFG.showEntrance) {
+      const probe = await probeFn();
+      return { probe, entrance: null };
+    }
+
+    let probeFinished = false;
+    let controllerStatus = 'unknown';
+    let matchedRecord = null;
+    let earlyDetailPromise = null;
+
+    async function enrichMatch(match) {
+      const { conn, parsed } = match;
+      const chains = Array.isArray(conn.chains) ? conn.chains : [];
+      const leafNode = chains.length > 0 ? String(chains[0] || '') : '';
+      const entranceIP =
+        parsed.isIPv4 || parsed.isIPv6 ? parsed.host : await resolveDomainToIP(parsed.host);
+      const geo = entranceIP ? await queryIPGeoExplicit(entranceIP).catch(() => null) : null;
+      return {
+        status: 'ok',
+        rawRemoteDst: String(conn.metadata.remoteDestination || ''),
+        entranceHost: parsed.host,
+        entrancePort: parsed.port,
+        entranceIP: entranceIP || '',
+        leafNode,
+        chains,
+        geo,
+      };
+    }
+
+    async function trySnapshotOnce() {
+      if (matchedRecord || controllerStatus === 'unreachable' || controllerStatus === 'unauthorized') {
+        return;
+      }
+      const snap = await fetchControllerConnectionsSnapshot();
+      controllerStatus = snap.status;
+      if (snap.status !== 'ok') return;
+      const found = findMatchingConnection(snap.connections, nodeName);
+      if (found) {
+        matchedRecord = found;
+        earlyDetailPromise = enrichMatch(found);
+      }
+    }
+
+    const watcherPromise = (async () => {
+      await new Promise((r) => setTimeout(r, 180));
+      if (probeFinished) return;
+      await trySnapshotOnce();
+      if (matchedRecord || probeFinished || controllerStatus !== 'ok') return;
+      await new Promise((r) => setTimeout(r, 420));
+      if (probeFinished) return;
+      await trySnapshotOnce();
+    })();
+
+    let probe;
+    try {
+      probe = await probeFn();
+    } finally {
+      probeFinished = true;
+    }
+
+    await watcherPromise.catch(() => {});
+
+    // 若探测快速返回时还未命中心跳采样，紧接一次即时快照（HTTPS Keep-Alive 连接此时仍在表中）
+    if (!matchedRecord && (controllerStatus === 'unknown' || controllerStatus === 'ok')) {
+      await trySnapshotOnce();
+    }
+
+    if (earlyDetailPromise) {
+      const entrance = await earlyDetailPromise.catch(() => null);
+      return { probe, entrance };
+    }
+
+    if (controllerStatus === 'unauthorized') {
+      return { probe, entrance: { status: 'unauthorized' } };
+    }
+    if (controllerStatus === 'unreachable') {
+      return { probe, entrance: { status: 'unreachable' } };
+    }
+    return { probe, entrance: { status: 'not_found' } };
+  }
+
+  // ============================================================================
   // 6. HTML 与面板渲染器（严格适配 ClashScriptHTML.swift 标签集与深浅色对比度）
   // ============================================================================
 
@@ -915,12 +1354,15 @@
    * 渲染 Clash-Client 长按节点弹窗 HTML (ClashNodeScriptResultView -> ClashScriptHTML)
    */
   function renderNodeSheetHTML(params) {
-    const { nodeName, nodeInfo, domestic, probe, deepMode } = params;
+    const { nodeName, nodeInfo, domestic, entrance, probe, deepMode } = params;
     const lines = [];
 
     // 1. 节点核心元数据区块 (Mihomo NodeRow 专属信息)
     lines.push('<b>▍节点状态</b>');
     lines.push('• <b>节点名称</b>：' + colorSpan(nodeName, COLORS.primary, true));
+    if (entrance && entrance.leafNode && entrance.leafNode !== nodeName) {
+      lines.push('• <b>实际节点</b>：' + colorSpan(entrance.leafNode, COLORS.cyan, true));
+    }
 
     if (nodeInfo && typeof nodeInfo === 'object') {
       const metaParts = [];
@@ -964,9 +1406,92 @@
       }
     }
 
-    // 3. 目标节点落地网络详情
+    // 2B. 节点中转入口（配合「外部控制器 -> 本机」自动抓取）
     const landing = probe.landing;
     const purity = probe.purity;
+    if (CFG.showEntrance && entrance) {
+      if (entrance.status === 'ok' && (entrance.entranceIP || entrance.entranceHost)) {
+        lines.push('');
+        lines.push('<b>▍节点中转入口</b>');
+        const entIP = entrance.entranceIP || '';
+        const entHost = entrance.entranceHost || '';
+        const isDomainHost = entHost && entHost !== entIP;
+        const isDirectLine =
+          Boolean(entIP) &&
+          (entIP === landing.ip || Boolean(probe.ipv6 && probe.ipv6.ip && entIP === probe.ipv6.ip));
+
+        if (entIP) {
+          const portSuffix = !CFG.maskIP && entrance.entrancePort ? ':' + entrance.entrancePort : '';
+          lines.push(
+            '• <b>入口 IP</b>：<code>' +
+              esc(maskIPString(entIP, CFG.maskIP) + portSuffix) +
+              '</code>'
+          );
+        }
+        if (isDomainHost) {
+          const hostPortSuffix =
+            !CFG.maskIP && !entIP && entrance.entrancePort ? ':' + entrance.entrancePort : '';
+          lines.push(
+            '• <b>入口域名</b>：<code>' +
+              esc(maskDomainString(entHost, CFG.maskIP) + hostPortSuffix) +
+              '</code>'
+          );
+        }
+
+        lines.push(
+          '• <b>链路类型</b>：' +
+            (isDirectLine
+              ? colorSpan('直连线路（入口即落地，未经过中转）', COLORS.cyan, true)
+              : colorSpan('中转 / 专线加速（入口与落地分离）', COLORS.purple, true))
+        );
+
+        if (!isDirectLine && entrance.geo) {
+          const eg = entrance.geo;
+          const eFlag = eg.isPrivate
+            ? '🏠'
+            : getFlagEmoji(eg.countryCode || '');
+          const eGeoText = deduplicateGeoParts([eg.country, eg.region, eg.city]).join(' ');
+          if (eGeoText) {
+            lines.push(
+              '• <b>入口归属</b>：' +
+                eFlag +
+                ' ' +
+                esc(eGeoText) +
+                (eg.countryCode ? ' <code>[' + esc(eg.countryCode.toUpperCase()) + ']</code>' : '')
+            );
+          }
+          const eISP = eg.ispDisplay || eg.isp || eg.org || '';
+          if (eISP || eg.asn) {
+            lines.push(
+              '• <b>入口运营商</b>：' +
+                (eg.asn ? '<code>' + esc(eg.asn) + '</code> ' : '') +
+                esc(eISP || '未知')
+            );
+          }
+        }
+      } else if (entrance.status === 'unauthorized') {
+        lines.push('');
+        lines.push('<b>▍节点中转入口</b>');
+        lines.push(
+          '• <b>待填密钥</b>：' +
+            colorSpan(
+              '已检测到本机外部控制器，前往「设置 -> 客户端设置 -> 外部控制器」复制密钥并填入本模块「设置」即可显示中转入口',
+              COLORS.warning,
+              false
+            )
+        );
+      } else if (entrance.status === 'unreachable') {
+        lines.push('');
+        lines.push('<b>▍节点中转入口</b>');
+        lines.push(
+          '• <b>开启方式</b>：<span style="color:' +
+            COLORS.muted +
+            '">前往「设置 -> 客户端设置 -> 外部控制器」选「本机」并把密钥填入模块设置，即可检测节点真实中转入口</span>'
+        );
+      }
+    }
+
+    // 3. 目标节点落地网络详情
     const flag = getFlagEmoji(landing.countryCode || (purity && purity.countryCode) || '');
     const geoText = deduplicateGeoParts([landing.country, landing.region, landing.city]).join(' ');
 
@@ -1355,14 +1880,23 @@
       : Promise.resolve(null);
 
     let probe;
+    let entrance = null;
     try {
-      probe = await tryTunnelBridgeProbe(nodeName, deepMode);
+      const res = await runProbeWithEntranceCapture(nodeName, () =>
+        tryTunnelBridgeProbe(nodeName, deepMode)
+      );
+      probe = res.probe;
+      entrance = res.entrance;
     } catch (bridgeErr) {
       log('Tunnel bridge unavailable (' + (bridgeErr.message || bridgeErr) + '), trying $config fallback...');
       // 等待直连查询完成后再切换 GLOBAL 模式，防止切换期间把国内直连查询带入全局代理
       const domesticBeforeSwitch = await domesticPromise;
       try {
-        probe = await fallbackConfigSwitchProbe(nodeName, deepMode);
+        const res = await runProbeWithEntranceCapture(nodeName, () =>
+          fallbackConfigSwitchProbe(nodeName, deepMode)
+        );
+        probe = res.probe;
+        entrance = res.entrance;
       } catch (fallbackErr) {
         $done({
           title: sheetTitle,
@@ -1396,6 +1930,7 @@
         nodeName,
         nodeInfo,
         domestic: domesticBeforeSwitch,
+        entrance,
         probe,
         deepMode,
       });
@@ -1408,6 +1943,7 @@
       nodeName,
       nodeInfo,
       domestic,
+      entrance,
       probe,
       deepMode,
     });
@@ -1430,10 +1966,14 @@
         } catch (_) {}
       }
 
-      const [domestic, probe] = await Promise.all([
+      const [domestic, probeWrap] = await Promise.all([
         CFG.showDomestic ? queryDomesticDirect(false).catch(() => null) : Promise.resolve(null),
-        executeOutboundProbe(undefined, false, CFG.checkPurity, CFG.checkIPv6),
+        runProbeWithEntranceCapture('', () =>
+          executeOutboundProbe(undefined, false, CFG.checkPurity, CFG.checkIPv6)
+        ),
       ]);
+      const probe = probeWrap.probe;
+      const entrance = probeWrap.entrance;
 
       const lines = [];
       if (modeInfo) lines.push('运行模式：' + modeInfo);
@@ -1448,6 +1988,26 @@
       }
 
       const l = probe.landing;
+      if (entrance && entrance.status === 'ok' && entrance.entranceIP) {
+        if (entrance.entranceIP === l.ip) {
+          lines.push('中转入口：直连线路（入口即落地）');
+        } else {
+          const eg = entrance.geo;
+          const eDesc = eg
+            ? [
+                deduplicateGeoParts([eg.country, eg.region, eg.city]).join(' '),
+                eg.ispDisplay || eg.isp || eg.org,
+              ]
+                .filter(Boolean)
+                .join(' ')
+            : '';
+          lines.push(
+            '中转入口：' +
+              maskIPString(entrance.entranceIP, CFG.maskIP) +
+              (eDesc ? ' (' + eDesc + ')' : '')
+          );
+        }
+      }
       const flag = getFlagEmoji(l.countryCode);
       const geo = deduplicateGeoParts([l.country, l.region, l.city]).join(' ');
       lines.push(

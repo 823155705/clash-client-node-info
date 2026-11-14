@@ -3,7 +3,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./LICENSE)
 [![Platform: iOS / macOS](https://img.shields.io/badge/Platform-iOS%20%7C%20macOS-111827.svg)](https://github.com/ProjectClash/Clash-Client)
 
-基于 [**xream/scripts**](https://github.com/xream/scripts)（`net-lsp-x` / `ip-info` / `ip-score` / `ip-whois`）的设计理念，专为 [**ProjectClash/Clash-Client**](https://github.com/ProjectClash/Clash-Client)（iOS / macOS）双进程模块引擎深度重构的**节点落地信息、双 ISP 原生家宽属性与 IP 纯净度风控检测工具**。
+基于 [**xream/scripts**](https://github.com/xream/scripts)（`net-lsp-x` / `ip-info` / `ip-score` / `ip-whois`）的设计理念，专为 [**ProjectClash/Clash-Client**](https://github.com/ProjectClash/Clash-Client)（iOS / macOS）双进程模块引擎深度重构的**节点中转入口、真实落地信息、双 ISP 原生家宽属性与 IP 纯净度风控检测工具**。
 
 ---
 
@@ -35,8 +35,9 @@ clash://install-module?url=https%3A%2F%2Fraw.githubusercontent.com%2F823155705%2
 
 ### 1. 代理页长按任意节点 → 「节点信息查询」（快速全览）
 在 **代理 (Proxies)** 页面长按任意代理节点，点击 **「节点信息查询」**：
-- **节点协议与健康度**：原生读取 Mihomo 节点元数据（协议类型如 `VLESS` / `Hysteria2` / `Shadowsocks` / `Trojan`、UDP 转发支持状态、最近一次测速延迟 `ms`）。
+- **节点协议与健康度**：原生读取 Mihomo 节点元数据（协议类型如 `VLESS` / `Hysteria2` / `Shadowsocks` / `Trojan`、UDP 转发支持状态、最近一次测速延迟 `ms`，若长按策略组还会自动展示底层实际承载节点）。
 - **本地直连入口对比**：展示当前国内直连 IP、归属省市与运营商（电信 / 联通 / 移动等）。
+- **节点中转入口探测（`v1.1.0` 新增）**：配合 Clash-Client 本机外部控制器实时捕获 Mihomo 拨号连接表中的 `remoteDestination`（结合原生 `$dns` 解析入口域名），精准区分 **「中转 / 专线加速」** 与 **「直连线路」**，并展示中转入口 IP、入口域名、归属省市及运营商/云厂商（如移动 / 联通 / 电信 / 阿里云 BGP / 腾讯云 BGP 等）。
 - **目标节点真实落地出口**：并发探测该节点的落地 **IPv4** 与 **IPv6** 支持情况、国家/地区旗帜、城市、时区、ASN 编号与所属 ISP / 机构。
 - **双 ISP 原生属性与纯净度评估**：
   - 区分 **ASN 类型** 与 **运营商 (Company) 类型**，精准识别 **「双 ISP 原生家宽」**、**「单 ISP 住宅宽带」**、**「商业专线」** 与 **「IDC 机房托管 (Hosting)」**。
@@ -82,13 +83,30 @@ clash://install-module?url=https%3A%2F%2Fraw.githubusercontent.com%2F823155705%2
 | 参数项 | 默认值 | 说明 |
 | :--- | :---: | :--- |
 | **显示本地直连入口对比** | 开启 | 同时查询国内直连 IP、省市归属与运营商 |
+| **查询节点中转入口 IP** | 开启 | 配合「外部控制器 -> 本机」自动抓取节点真实中转入口 IP、域名与运营商 |
+| **外部控制器端口** | `9090` | 对应「外部控制器 -> 本机」中的监听端口，默认 `9090` |
+| **外部控制器密钥** | 留空 | 粘贴「外部控制器 -> 本机」页面生成的密钥即可解锁节点中转入口显示 |
 | **查询 IP 纯净度与原生属性** | 开启 | 调用 `ipapi.is` 检测双 ISP 属性、滥用分与风险标签 |
 | **检测节点 IPv6 出口支持** | 开启 | 探测目标节点是否具备可用 IPv6 出站能力 |
-| **隐私保护（IP 部分打码）** | 关闭 | 开启后自动隐藏 IPv4/IPv6 中间段，方便安全截图分享 |
+| **隐私保护（IP 部分打码）** | 关闭 | 开启后自动隐藏 IPv4/IPv6 中间段与入口域名，方便安全截图分享 |
 | **未开解密引擎时自动临时切换测速** | 开启 | 未开启模块页顶部开关时允许通过 `$config` 临时路由测速并自动还原 |
 | **网络环境切换推送通知** | 关闭 | 开启后在 Wi-Fi / 蜂窝网络切换且出口变化时推送系统通知 |
 | **接口超时时间（秒）** | `8` 秒 | 可选 `5` / `8` / `12` / `15` 秒，高延迟链路建议适当调大 |
 | **ipapi.is API Key（可选）** | 留空 | 留空即可免费免 Key 使用；高频批量检测可填入免费申请的 Key |
+
+---
+
+## 🔍 如何开启「节点中转入口 IP」查询？
+
+虽然 `Clash-Client` 的 `$environment.params.nodeInfo` 出于安全脱敏默认不直接暴露订阅明文 `server` 字段，但本模块（`v1.1.0+`）通过联动 `Clash-Client` 内置的**本机回环外部控制器**完美突破了这一限制，只需 **10 秒一次配置**：
+
+1. 打开 `Clash-Client` → **设置** → **客户端设置** → **外部控制器**。
+2. 选择 **「本机」**（仅监听设备内部 `127.0.0.1:9090`，不对外网或局域网暴露，安全无隐患），点击复制页面上显示的 **「密钥」**。
+3. 回到 **模块** → 点击 **「节点网络信息查询」** → **设置** → 将密钥粘贴到 **「外部控制器密钥」** 中保存（若连接已开启，重连一次 VPN 使外部控制器生效）。
+
+完成后，长按任意节点即可同时看到完整的三段链路：**`本地直连入口` ➔ `节点中转入口（国内运营商 / 云 BGP 专线）` ➔ `节点落地出口`**！
+
+> 💡 **补充方案（Sub-Store 订阅预处理）**：如果您平时使用 Sub-Store 管理订阅，也可以在 Sub-Store 脚本操作中挂载 `xream/scripts` 仓库下的 [`entrance.js`](https://github.com/xream/scripts/tree/main/surge/modules/sub-store-scripts/check)，在拉取订阅阶段直接将入口地区/运营商写入节点名称前缀。
 
 ---
 
