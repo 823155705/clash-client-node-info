@@ -1,0 +1,12 @@
+#!name=外部链接直跳解锁 (可莉仓库适配版)
+#!desc=移植自可莉插件仓库「微信外部链接解锁 / QQ链接解锁」，并扩展知乎、微博、CSDN、掘金、简书外链直跳。自动跳过「即将离开应用」安全提示中转页，毫秒级 302 直达目标网页（需开启模块页 HTTPS 解密并信任证书）。
+#!author=Kelee & Contributors
+#!homepage=https://github.com/823155705/clash-client-node-info
+#!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Link.png
+#!date=2026-11-14
+
+[Script]
+http-request ^https?:\/\/(weixin110\.qq\.com\/cgi-bin\/mmspamsupport-bin\/newredirectconfirmcgi|c\.pc\.qq\.com\/(middlem|ios|index|pc)\.html|link\.zhihu\.com\/\?|sinaurl\.cn\/|link\.csdn\.net\/\?|link\.juejin\.cn\/\?|www\.jianshu\.com\/go-wild\?) script-path=https://raw.githubusercontent.com/823155705/clash-client-node-info/main/plugins/kelee-link-unlock.js?v=2.0.0, timeout=10, script-update-interval=86400, tag=外链拦截直跳解锁
+
+[MITM]
+hostname = weixin110.qq.com, c.pc.qq.com, link.zhihu.com, sinaurl.cn, link.csdn.net, link.juejin.cn, www.jianshu.com
