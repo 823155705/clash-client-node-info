@@ -1,11 +1,11 @@
 /**
- * xream & Kelee Node Suite — ProjectClash/Clash-Client 全能节点检测套件 (v2.5.0)
+ * xream & Kelee Node Suite — ProjectClash/Clash-Client 全能节点检测套件 (v2.5.1 · FG-Interactive)
  *
  * 深度融合：
  * 1. xream/scripts (ip-info / net-lsp-x / ip-whois / ip-score)
  * 2. 可莉插件仓库 (Node_detection_tool 流媒体&AI解锁 / WARP_Node_Query / NodeLinkCheck 代理链路)
  *
- * 专为 ProjectClash/Clash-Client (iOS / macOS) 三大独立长按菜单设计（轻量化低并发架构、高信噪比排版）：
+ * 专为 ProjectClash/Clash-Client (iOS / macOS) 三大独立长按菜单设计（轻量化低并发架构、高信噪比排版、软熔断防隔离）：
  * - 🌐 节点链路与入口查询 (MODE=info)  : 本地直连 ➔ 中转入口(含ASN) ➔ 落地双栈 ➔ BGP上游骨干 ➔ CF边缘 & WARP
  * - 🛡️ 节点纯净度深度检测 (MODE=purity): 双 ISP 原生家宽血统 + 广播/原生判定 + BGP上游 + 三源风控/RBL审计
  * - 🎬 流媒体与 AI 解锁检测 (MODE=unlock): ChatGPT(Web+iOS) / Claude / Gemini / Netflix / YouTube / Disney+ / TikTok / 动画疯
@@ -141,9 +141,27 @@
     timeoutMs: Math.round(toNum(ARGS.TIMEOUT_SEC, 8, 3, 25) * 1000),
   };
 
+  let _scriptSettled = false;
+  let _softDeadlineTimer = null;
+
   function log(msg) {
     try {
       console.log('[clash-suite] ' + msg);
+    } catch (_) {}
+  }
+
+  /**
+   * 幂等安全结束器：确保全局只调用一次 $done，并在宿主看门狗到期前清理所有内部定时器，杜绝触发 SHA-256 隔离
+   */
+  function safeDone(payload) {
+    if (_scriptSettled) return;
+    _scriptSettled = true;
+    if (_softDeadlineTimer) {
+      clearTimeout(_softDeadlineTimer);
+      _softDeadlineTimer = null;
+    }
+    try {
+      $done(payload === undefined ? {} : payload);
     } catch (_) {}
   }
 
@@ -189,7 +207,7 @@
     const results = new Array(taskFns.length);
     let nextIdx = 0;
     async function worker() {
-      while (nextIdx < taskFns.length) {
+      while (!_scriptSettled && nextIdx < taskFns.length) {
         const cur = nextIdx++;
         results[cur] = await taskFns[cur]();
       }
@@ -251,6 +269,9 @@
   }
 
   function httpRequest(method, options, timeoutOverride) {
+    if (_scriptSettled) {
+      return Promise.reject(new Error('Aborted after soft deadline'));
+    }
     const timeoutMs = timeoutOverride || CFG.timeoutMs;
     const reqOpts = typeof options === 'string' ? { url: options } : Object.assign({}, options);
     reqOpts.headers = Object.assign(
@@ -282,7 +303,10 @@
             ? $httpClient.post.bind($httpClient)
             : $httpClient.get.bind($httpClient);
         fn(reqOpts, (err, resp, data) => {
-          if (settled) return;
+          if (settled || _scriptSettled) {
+            clearTimeout(timer);
+            return;
+          }
           settled = true;
           clearTimeout(timer);
           if (err) {
@@ -2872,7 +2896,7 @@
       try {
         const result = await executeModeProbe(targetNode || undefined, mode);
         result.fromClashTunnelBridge = true;
-        $done({
+        safeDone({
           response: {
             status: 200,
             headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
@@ -2880,7 +2904,7 @@
           },
         });
       } catch (e) {
-        $done({
+        safeDone({
           response: {
             status: 200,
             headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
@@ -2913,7 +2937,7 @@
       const topology = buildTopologyHops({ domestic, entrance, probe: infoProbe }).plain;
 
       if (query.format === 'json' || pathname === '/json' || pathname === '/api') {
-        $done({
+        safeDone({
           response: {
             status: 200,
             headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' },
@@ -2927,7 +2951,7 @@
         return;
       }
 
-      $done({
+      safeDone({
         response: {
           status: 200,
           headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
@@ -2935,7 +2959,7 @@
         },
       });
     } catch (e) {
-      $done({
+      safeDone({
         response: {
           status: 500,
           headers: { 'Content-Type': 'text/plain; charset=utf-8' },
@@ -2984,7 +3008,7 @@
         probe = res.probe;
         entrance = res.entrance;
       } catch (fallbackErr) {
-        $done({
+        safeDone({
           title: sheetTitle,
           htmlMessage:
             '<b>▍查询失败</b><br>' +
@@ -2996,7 +3020,7 @@
       }
 
       if (probe && probe.needsEngineWarning) {
-        $done({
+        safeDone({
           title: sheetTitle,
           htmlMessage:
             colorSpan(probe.error, COLORS.warning, true) +
@@ -3006,13 +3030,13 @@
       }
 
       const html = renderByMode(mode, { nodeName, nodeInfo, domestic: domesticBeforeSwitch, entrance, probe });
-      $done({ title: sheetTitle, htmlMessage: html });
+      safeDone({ title: sheetTitle, htmlMessage: html });
       return;
     }
 
     const domestic = await domesticPromise;
     const html = renderByMode(mode, { nodeName, nodeInfo, domestic, entrance, probe });
-    $done({ title: sheetTitle, htmlMessage: html });
+    safeDone({ title: sheetTitle, htmlMessage: html });
   }
 
   function renderByMode(mode, ctx) {
@@ -3130,14 +3154,14 @@
         );
       }
 
-      $done({
+      safeDone({
         title: '当前网络出口信息',
         content: lines.join('\n'),
         icon: 'globe.asia.australia',
         'icon-color': '#10B981',
       });
     } catch (e) {
-      $done({
+      safeDone({
         title: '当前网络出口信息',
         content: '查询失败：' + String((e && e.message) || e),
         icon: 'exclamationmark.triangle',
@@ -3148,7 +3172,7 @@
 
   async function handleNetworkChanged() {
     if (!CFG.notifyOnChange) {
-      $done({});
+      safeDone({});
       return;
     }
     try {
@@ -3178,7 +3202,7 @@
         Boolean(landIP) &&
         (!prev || prev.v !== 4 || prev.domIP !== domIP || prev.landIP !== landIP || prev.cc !== cc);
 
-      if (hasChanged) {
+      if (hasChanged && !_scriptSettled) {
         storeWrite(
           LAST_EVENT_KEY,
           JSON.stringify({ v: 4, domIP, landIP, cc, entIP, node: activeNode })
@@ -3280,24 +3304,108 @@
 
         const bodyText =
           routeLines.length > 0 ? exitLines.join('\n') + '\n\n' + routeLines.join('\n') : exitLines.join('\n');
-        notify(titleText, subtitleText, bodyText);
+        if (!_scriptSettled) notify(titleText, subtitleText, bodyText);
       }
     } catch (e) {
       log('network-changed error: ' + ((e && e.message) || e));
     }
-    $done({});
+    safeDone({});
+  }
+
+  /**
+   * 软超时提前熔断看门狗：远早于 .plugin 宿主 timeout 主动调用 $done 并还原挂起策略，
+   * 确保宿主 ModuleScriptHost 永远不会进入超时看门狗并将脚本 SHA-256 写入 quarantine.json。
+   */
+  function armSoftDeadlineGuard(ctx) {
+    let budgetMs = 36000;
+    if (ctx.isHTTP) {
+      budgetMs = Math.min(45000, Math.max(20000, CFG.timeoutMs * 3 + 10000));
+    } else if (ctx.nodeName) {
+      if (CFG.mode === 'unlock') {
+        budgetMs = Math.min(56000, Math.max(28000, CFG.timeoutMs * 4 + 14000));
+      } else if (CFG.mode === 'purity') {
+        budgetMs = Math.min(48000, Math.max(24000, CFG.timeoutMs * 4 + 10000));
+      } else {
+        budgetMs = Math.min(38000, Math.max(20000, CFG.timeoutMs * 3 + 8000));
+      }
+    } else if (CFG.mode === 'event') {
+      budgetMs = 22000;
+    } else {
+      budgetMs = 25000;
+    }
+
+    _softDeadlineTimer = setTimeout(() => {
+      if (_scriptSettled) return;
+      log('Soft deadline (' + budgetMs + 'ms) reached, settling early to prevent host quarantine');
+      recoverDanglingPolicyIfAny();
+
+      if (ctx.isHTTP) {
+        const reqURL = ($request && $request.url) || '';
+        const isBridge = reqURL.indexOf(BRIDGE_CHECK_PATH) !== -1;
+        safeDone({
+          response: {
+            status: isBridge ? 200 : 504,
+            headers: {
+              'Content-Type': isBridge ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8',
+              'Cache-Control': 'no-store',
+            },
+            body: isBridge
+              ? JSON.stringify({
+                  ok: false,
+                  fromClashTunnelBridge: true,
+                  error: '节点探测超时（目标节点可能不可用或握手过慢）',
+                })
+              : '节点探测响应超时，请检查节点连通性后重试',
+          },
+        });
+        return;
+      }
+
+      if (ctx.nodeName) {
+        const titleMap = {
+          info: '节点链路与入口查询',
+          purity: '节点纯净度深度检测',
+          unlock: '流媒体与 AI 解锁检测',
+        };
+        const sheetTitle = titleMap[CFG.mode] || '节点网络信息查询';
+        safeDone({
+          title: sheetTitle,
+          htmlMessage:
+            '<b>▍查询超时已保护退出</b><br>' +
+            '目标节点：' + colorSpan(ctx.nodeName, COLORS.primary, true) +
+            '<br>原因说明：' + colorSpan('节点握手或远端接口响应超过安全时限，已自动中止探测', COLORS.warning, false) +
+            '<br><br><span style="color:' + COLORS.muted + '">💡 请检查该节点是否能正常连通，或稍后重试。</span>',
+        });
+        return;
+      }
+
+      if (CFG.mode === 'event') {
+        safeDone({});
+        return;
+      }
+
+      safeDone({
+        title: '当前网络出口信息',
+        content: '查询超时，请检查当前网络或代理连通性后重试',
+        icon: 'exclamationmark.triangle',
+        'icon-color': '#F59E0B',
+      });
+    }, budgetMs);
   }
 
   (async function main() {
+    const isHTTP = Boolean(typeof $request !== 'undefined' && $request && $request.url);
+    const env = typeof $environment !== 'undefined' && $environment ? $environment : {};
+    const params = env.params && typeof env.params === 'object' ? env.params : {};
+    const nodeName = params.node ? String(params.node).trim() : '';
+
+    armSoftDeadlineGuard({ isHTTP, nodeName });
+
     try {
-      if (typeof $request !== 'undefined' && $request && $request.url) {
+      if (isHTTP) {
         await handleHTTPRequest();
         return;
       }
-      const env = typeof $environment !== 'undefined' && $environment ? $environment : {};
-      const params = env.params && typeof env.params === 'object' ? env.params : {};
-      const nodeName = params.node ? String(params.node).trim() : '';
-
       if (nodeName) {
         await handleNodeLongPress(nodeName, params.nodeInfo || null);
         return;
@@ -3308,7 +3416,8 @@
       }
       await handleModulePanel();
     } catch (err) {
-      $done({
+      recoverDanglingPolicyIfAny();
+      safeDone({
         title: '节点检测异常',
         content: String((err && err.message) || err),
         htmlMessage: colorSpan('执行异常：' + String((err && err.message) || err), COLORS.danger, true),

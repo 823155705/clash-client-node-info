@@ -7,7 +7,7 @@
 
 ---
 
-## 🚀 主模块：全能节点检测套件 (`v2.5.0`)
+## 🚀 主模块：全能节点检测套件 (`v2.5.1`)
 
 打开 **Clash-Client** → **模块** → 点击右上角 **`+`** 粘贴导入（或复制 [`xream-clash-node-info.plugin`](./xream-clash-node-info.plugin) 手动新建）：
 
