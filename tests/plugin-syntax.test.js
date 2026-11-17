@@ -435,7 +435,7 @@ for (const rel of lpxFiles) {
     const content = fs.readFileSync(path.join(ROOT, rel), 'utf8');
     const { errors, meta } = validateLoonLpxContent(content, rel);
     assert.deepEqual(errors, [], `发现违规项:\n  - ${errors.join('\n  - ')}`);
-    assert.equal(meta.get('author'), '823155705');
+    assert.equal(meta.get('author'), '小鸣');
     assert.equal(meta.get('homepage'), 'https://github.com/823155705/clash-client-node-info');
   });
 }
@@ -583,7 +583,7 @@ for (const rel of pluginFiles) {
     for (const key of ['name', 'desc', 'author', 'homepage', 'icon', 'date']) {
       assert.match(content, new RegExp(`^#!${key}=.+`, 'm'), `${rel} 缺少 #!${key}`);
     }
-    assert.match(content, /^#!author=823155705$/m, `${rel} #!author 应统一为 823155705`);
+    assert.match(content, /^#!author=小鸣$/m, `${rel} #!author 应统一为 小鸣`);
     assert.match(
       content,
       /^#!homepage=https:\/\/github\.com\/823155705\/clash-client-node-info$/m,

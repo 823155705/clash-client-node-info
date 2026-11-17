@@ -4,6 +4,7 @@
  * 多客户端节点链路查询、IP 纯净度与流媒体解锁检测脚本
  * 适用环境：Loon / Clash-Client / Surge / Stash / Shadowrocket / Egern
  *
+ * Author: 小鸣
  * Repository: https://github.com/823155705/clash-client-node-info
  * License: GPL-3.0-or-later
  */

@@ -1,7 +1,7 @@
 #!name=HTTPDNS 拦截
 #!desc=拦截常见 App 的 HTTPDNS 请求，防止分流绕过与 DNS 泄露。
 #!openUrl=https://github.com/823155705/clash-client-node-info
-#!author=823155705
+#!author=小鸣
 #!tag=HTTPDNS
 #!system=iOS,iPadOS,macOS,tvOS
 #!system_version=

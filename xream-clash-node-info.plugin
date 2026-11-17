@@ -1,6 +1,6 @@
 #!name=节点检测工具
 #!desc=长按节点查询入口与落地链路、IP 纯净度、流媒体及 AI 解锁状态。详细说明见 GitHub 主页。
-#!author=823155705
+#!author=小鸣
 #!homepage=https://github.com/823155705/clash-client-node-info
 #!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Global.png
 #!date=2026-11-17

@@ -1,7 +1,7 @@
 #!name=Google 与 TestFlight 解锁
 #!desc=将 google.cn 重定向至 google.com，并解除 TestFlight 区域限制。
 #!openUrl=https://github.com/823155705/clash-client-node-info
-#!author=823155705
+#!author=小鸣
 #!tag=Google, TestFlight
 #!system=iOS,iPadOS,macOS,tvOS
 #!system_version=
