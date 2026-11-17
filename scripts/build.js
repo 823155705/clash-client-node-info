@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Zero-dependency build & consistency verification script for xream & Kelee Node Suite v3.0.0
+ * Build & SHA-256 consistency verification script (v3.1.0)
+ * License: GPL-3.0-or-later
  *
  * Usage:
  *   node scripts/build.js          # Generate 3 root artifacts from src/xream-node-core.js
@@ -19,19 +20,19 @@ const CORE_PATH = path.join(ROOT_DIR, 'src', 'xream-node-core.js');
 const TARGETS = [
   {
     file: 'xream-node-info.js',
-    banner: 'v3.0.0 · Universal Multi-Client',
+    banner: 'v3.1.0 · Universal Multi-Client',
     variant: 'universal',
     hostHint: 'auto',
   },
   {
     file: 'xream-clash-node-info.js',
-    banner: 'v3.0.0 · Clash-Client FG-Interactive',
+    banner: 'v3.1.0 · Clash-Client FG-Interactive',
     variant: 'clash-fg',
     hostHint: 'auto',
   },
   {
     file: 'xream-clash-node-bg.js',
-    banner: 'v3.0.0 · Clash-Client BG-Tunnel-Event',
+    banner: 'v3.1.0 · Clash-Client BG-Tunnel-Event',
     variant: 'clash-bg',
     hostHint: 'auto',
   },
@@ -42,7 +43,7 @@ function sha256Hex(content) {
 }
 
 function renderArtifact(coreSource, target) {
-  const bannerToken = '(v3.0.0 · Core Source)';
+  const bannerToken = '(v3.1.0 · Core Source)';
   const variantToken = "const BUILD_VARIANT = 'core-source';";
   const hostHintToken = "const DEFAULT_HOST_HINT = 'auto';";
 

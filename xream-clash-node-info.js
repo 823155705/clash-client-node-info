@@ -1,21 +1,17 @@
 /**
- * xream & Kelee Node Suite — 多客户端全能节点检测引擎 (v3.0.0 · Clash-Client FG-Interactive)
+ * Node Detection Tool (v3.1.0 · Clash-Client FG-Interactive)
  *
- * 深度融合：
- * 1. xream/scripts (net-lsp-x / ip-info / ip-score / Sub-Store HostAdapter & 双源互补归属)
- * 2. 可莉插件生态 (Node_detection_tool 流媒体&AI解锁 / WARP_Node_Query / Loon 原生无控制器入口直取)
- * 3. 10 类 100% 客观证据驱动链路拓扑分类器 + 独立名称宣称验伪审计 + 双轴 BGP 评级解耦
+ * 多客户端节点链路查询、IP 纯净度与流媒体解锁检测脚本
+ * 适用环境：Loon / Clash-Client / Surge / Stash / Shadowrocket / Egern
  *
- * 原生支持宿主：Loon (一等公民) · Clash-Client (ProjectClash) · Surge · Stash · Shadowrocket · Egern
- * - 🌐 节点链路与入口查询 (MODE=info)  : 本地直连 ➔ 智能EDNS/CNAME入口(含ASN) ➔ 落地双栈 ➔ 双轴BGP骨干 ➔ CF边缘 & WARP
- * - 🛡️ 节点纯净度深度检测 (MODE=purity): 双 ISP 原生家宽血统 + 广播/原生判定 + BGP上游 + 四源风控/RBL交叉审计
- * - 🎬 流媒体与 AI 解锁检测 (MODE=unlock): ChatGPT(Web+iOS) / Claude / Gemini / Netflix / YouTube / Disney+ / TikTok / 动画疯
+ * Repository: https://github.com/823155705/clash-client-node-info
+ * License: GPL-3.0-or-later
  */
 
 (function () {
   'use strict';
 
-  const VERSION = '3.0.0';
+  const VERSION = '3.1.0';
   const BUILD_VARIANT = 'clash-fg';
   const DEFAULT_HOST_HINT = 'auto';
 
@@ -200,6 +196,7 @@
       if (/纯净度|风险|风控|purity/i.test(scriptName)) return 'purity';
       if (/解锁|流媒体|unlock/i.test(scriptName)) return 'unlock';
       if (/切网|网络切换|切换通知|网络变化|event/i.test(scriptName)) return 'event';
+      if (/网页诊断|诊断面板|portal/i.test(scriptName)) return 'info';
       return 'info';
     }
 
@@ -637,13 +634,6 @@
     return s;
   }
 
-  function maskDomainString(domain, enabled) {
-    if (!domain || !enabled) return domain || '-';
-    const parts = String(domain).trim().split('.');
-    if (parts.length <= 1) return '***';
-    return '***.***.' + parts[parts.length - 1];
-  }
-
   function esc(str) {
     return String(str == null ? '' : str)
       .replace(/&/g, '&amp;')
@@ -653,16 +643,227 @@
   }
 
   function colorSpan(text, hex, bold) {
-    const weight = bold ? ';font-weight:bold' : '';
+    const weight = bold ? ';font-weight:600' : '';
     return '<span style="color:' + hex + weight + '">' + esc(text) + '</span>';
   }
 
+  const SHEET_HR =
+    '<hr style="border:none;border-top:1px solid rgba(128,128,128,0.18);margin:8px 0">';
+  const SHEET_SUB_HR =
+    '<hr style="border:none;border-top:1px solid rgba(128,128,128,0.14);margin:6px 0">';
+
   function wrapSheetBodyHTML(innerHTML) {
     return (
-      '<div style="font-family:-apple-system,BlinkMacSystemFont,\'PingFang SC\',sans-serif;font-size:13.5px;line-height:1.55">' +
+      '<div style="font-family:-apple-system,BlinkMacSystemFont,\'PingFang SC\',sans-serif;font-size:13.5px;line-height:1.65">' +
       innerHTML +
       '</div>'
     );
+  }
+
+  function renderKVRow(label, valueHtml, minEm) {
+    const w = minEm || '2.8em';
+    return (
+      '<span style="display:inline-block;min-width:' +
+      w +
+      ';color:' +
+      COLORS.muted +
+      '">' +
+      esc(label) +
+      '</span> ' +
+      valueHtml
+    );
+  }
+
+  // ISO 国家/地区码 -> 简明中文映射（消除英文源返回 Hong Kong / Singapore / United States 等中英混杂）
+  const COUNTRY_CODE_ZH_MAP = {
+    CN: '中国', HK: '香港', MO: '澳门', TW: '台湾', SG: '新加坡',
+    JP: '日本', KR: '韩国', US: '美国', CA: '加拿大', MX: '墨西哥',
+    GB: '英国', DE: '德国', FR: '法国', NL: '荷兰', CH: '瑞士',
+    AT: '奥地利', BE: '比利时', IT: '意大利', ES: '西班牙', PT: '葡萄牙',
+    SE: '瑞典', NO: '挪威', FI: '芬兰', DK: '丹麦', IE: '爱尔兰',
+    PL: '波兰', CZ: '捷克', HU: '匈牙利', RO: '罗马尼亚', BG: '保加利亚',
+    UA: '乌克兰', RU: '俄罗斯', TR: '土耳其', IL: '以色列', AE: '阿联酋',
+    SA: '沙特', QA: '卡塔尔', IN: '印度', PK: '巴基斯坦', BD: '孟加拉',
+    TH: '泰国', VN: '越南', MY: '马来西亚', PH: '菲律宾', ID: '印尼',
+    KH: '柬埔寨', LA: '老挝', MM: '缅甸', NP: '尼泊尔', KZ: '哈萨克斯坦',
+    AU: '澳大利亚', NZ: '新西兰', BR: '巴西', AR: '阿根廷', CL: '智利',
+    CO: '哥伦比亚', PE: '秘鲁', ZA: '南非', EG: '埃及', NG: '尼日利亚',
+    LU: '卢森堡', IS: '冰岛', GR: '希腊',
+  };
+
+  // 中国 34 省级行政区 + 重点口岸/省会及台湾主要城市英文/拼音 -> 中文归一表
+  const CN_PLACE_ZH_MAP = {
+    // 直辖市与港澳台
+    beijing: '北京', peking: '北京',
+    shanghai: '上海',
+    tianjin: '天津',
+    chongqing: '重庆',
+    hongkong: '香港',
+    macau: '澳门', macao: '澳门',
+    taiwan: '台湾',
+    // 23 省 + 5 自治区
+    guangdong: '广东', canton: '广东',
+    jiangsu: '江苏',
+    zhejiang: '浙江',
+    fujian: '福建',
+    shandong: '山东',
+    hubei: '湖北',
+    hunan: '湖南',
+    sichuan: '四川',
+    henan: '河南',
+    hebei: '河北',
+    anhui: '安徽',
+    jiangxi: '江西',
+    liaoning: '辽宁',
+    jilin: '吉林',
+    heilongjiang: '黑龙江',
+    shanxi: '山西',
+    shaanxi: '陕西',
+    yunnan: '云南',
+    guizhou: '贵州',
+    guangxi: '广西', guangxizhuangzu: '广西',
+    hainan: '海南',
+    gansu: '甘肃',
+    qinghai: '青海',
+    ningxia: '宁夏', ningxiahuizu: '宁夏',
+    xinjiang: '新疆', xinjianguygur: '新疆', sinkiang: '新疆',
+    tibet: '西藏', xizang: '西藏',
+    innermongolia: '内蒙古', neimenggu: '内蒙古', neimongol: '内蒙古',
+    // 华东/华南高频口岸与核心城市
+    shenzhen: '深圳', guangzhou: '广州', dongguan: '东莞', foshan: '佛山',
+    zhuhai: '珠海', zhongshan: '中山', huizhou: '惠州', jiangmen: '江门',
+    shantou: '汕头', zhanjiang: '湛江', shaoguan: '韶关', qingyuan: '清远',
+    jieyang: '揭阳', meizhou: '梅州', maoming: '茂名', zhaoqing: '肇庆',
+    shanwei: '汕尾', yangjiang: '阳江', heyuan: '河源', chaozhou: '潮州', yunfu: '云浮',
+    nanjing: '南京', suzhou: '苏州', wuxi: '无锡', changzhou: '常州',
+    zhenjiang: '镇江', nantong: '南通', yangzhou: '扬州', xuzhou: '徐州',
+    yancheng: '盐城', taizhou: '泰州', huaian: '淮安', lianyungang: '连云港',
+    suqian: '宿迁', kunshan: '昆山',
+    hangzhou: '杭州', ningbo: '宁波', wenzhou: '温州', jiaxing: '嘉兴',
+    huzhou: '湖州', shaoxing: '绍兴', jinhua: '金华', yiwu: '义乌',
+    quzhou: '衢州', zhoushan: '舟山', lishui: '丽水',
+    xiamen: '厦门', fuzhou: '福州', quanzhou: '泉州', zhangzhou: '漳州',
+    putian: '莆田', longyan: '龙岩', ningde: '宁德', sanming: '三明', nanping: '南平',
+    qingdao: '青岛', jinan: '济南', yantai: '烟台', weifang: '潍坊',
+    weihai: '威海', zibo: '淄博', linyi: '临沂', jining: '济宁', rizhao: '日照',
+    // 华中/华北/西南/西北/东北主要省会与节点城市
+    wuhan: '武汉', yichang: '宜昌', xiangyang: '襄阳',
+    changsha: '长沙', zhuzhou: '株洲', hengyang: '衡阳',
+    chengdu: '成都', mianyang: '绵阳', deyang: '德阳',
+    xian: '西安', xianyang: '咸阳', baoding: '保定',
+    zhengzhou: '郑州', luoyang: '洛阳',
+    hefei: '合肥', wuhu: '芜湖', bangbu: '蚌埠',
+    nanchang: '南昌', ganzhou: '赣州', jiujiang: '九江', shangrao: '上饶',
+    shijiazhuang: '石家庄', tangshan: '唐山', langfang: '廊坊', zhangjiakou: '张家口', qinhuangdao: '秦皇岛',
+    taiyuan: '太原', datong: '大同',
+    shenyang: '沈阳', dalian: '大连', anshan: '鞍山',
+    changchun: '长春', jilinshi: '吉林',
+    harbin: '哈尔滨', daqing: '大庆',
+    kunming: '昆明', dali: '大理',
+    guiyang: '贵阳', zunyi: '遵义',
+    nanning: '南宁', liuzhou: '柳州', guilin: '桂林', beihai: '北海',
+    haikou: '海口', sanya: '三亚',
+    lanzhou: '兰州', xining: '西宁', yinchuan: '银川',
+    urumqi: '乌鲁木齐', wulumuqi: '乌鲁木齐',
+    lhasa: '拉萨', lasa: '拉萨',
+    hohhot: '呼和浩特', huhehaote: '呼和浩特', baotou: '包头',
+    // 台湾主要城市
+    taipei: '台北', newtaipei: '新北', xinbei: '新北', taoyuan: '桃园',
+    taichung: '台中', tainan: '台南', kaohsiung: '高雄', hsinchu: '新竹',
+    keelung: '基隆', changhua: '彰化',
+  };
+
+  function hasCJK(str) {
+    return /[\u4e00-\u9fa5]/.test(String(str || ''));
+  }
+
+  function cleanCNPlaceName(str) {
+    return String(str || '')
+      .replace(/省|市|壮族自治区|维吾尔自治区|回族自治区|自治区|特别行政区|地区/g, '')
+      .trim();
+  }
+
+  /**
+   * 将大陆/港澳台省市名（含英文/拼音，如 "Shanghai", "Guangdong Province", "Xi'an"）归一为纯净中文简称
+   */
+  function normalizeCNPlace(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return '';
+    if (hasCJK(s)) return cleanCNPlaceName(s);
+    const key = s
+      .toLowerCase()
+      .replace(/\b(autonomous\s+region|special\s+administrative\s+region|municipality|prefecture|province|prov|district|county|city|sar|zizhiqu|sheng|shi)\b/g, '')
+      .replace(/[^a-z]/g, '');
+    if (!key) return '';
+    return CN_PLACE_ZH_MAP[key] || '';
+  }
+
+  function inferCountryCode(countryCode, countryName) {
+    const cc = toStr(countryCode, '').toUpperCase();
+    if (/^[A-Z]{2}$/.test(cc)) return cc;
+    const c = toStr(countryName, '').toLowerCase();
+    if (!c) return '';
+    if (c === '中国' || c === 'china') return 'CN';
+    if (c === '香港' || c === 'hong kong' || c === 'hongkong') return 'HK';
+    if (c === '澳门' || c === 'macau' || c === 'macao') return 'MO';
+    if (c === '台湾' || c === 'taiwan') return 'TW';
+    if (c === '新加坡' || c === 'singapore') return 'SG';
+    return '';
+  }
+
+  /**
+   * 紧凑去重地理位置格式化：
+   * - 港澳新等城市型地区直接输出「香港」「澳门」「新加坡」，彻底剔除 Kowloon / Hong Kong / Singapore 等重复或英文区名
+   * - 中国大陆省市自动将英文/拼音映射为中文并去重（如 Shanghai -> 上海，Guangdong + Shenzhen -> 广东深圳；shortHop 模式下取城市简称「深圳」）
+   * - 海外国家优先使用中文国名 + 紧凑城市名（无中文则保留如「美国 Los Angeles」，过滤冗余州省名与重复国名）
+   */
+  function formatCompactLocation(geoObj, opts) {
+    if (!geoObj || typeof geoObj !== 'object') return '';
+    if (geoObj.isPrivate) return '局域网';
+    const shortHop = Boolean(opts && opts.shortHop);
+    const cc = inferCountryCode(geoObj.countryCode, geoObj.country);
+
+    if (cc === 'HK') return '香港';
+    if (cc === 'MO') return '澳门';
+    if (cc === 'SG') return '新加坡';
+
+    if (cc === 'CN') {
+      const regZh = normalizeCNPlace(geoObj.region);
+      const cityZh = normalizeCNPlace(geoObj.city);
+      if (shortHop) return cityZh || regZh || '中国';
+      return deduplicateGeoParts([regZh, cityZh]).join('') || '中国';
+    }
+
+    if (cc === 'TW') {
+      const cityZh = normalizeCNPlace(geoObj.city) || normalizeCNPlace(geoObj.region);
+      if (shortHop || !cityZh || cityZh === '台湾') return '台湾';
+      return '台湾' + cityZh;
+    }
+
+    const rawCountry = toStr(geoObj.country, '');
+    const countryZh =
+      COUNTRY_CODE_ZH_MAP[cc] || (hasCJK(rawCountry) ? rawCountry : '') || rawCountry || cc;
+    if (shortHop) return countryZh || cc;
+
+    let city = toStr(geoObj.city, '').replace(/\s+am\s+Main$/i, '').trim();
+    if (!city && geoObj.region) {
+      const reg = toStr(geoObj.region, '').trim();
+      if (hasCJK(reg)) city = reg;
+    }
+    if (!city) return countryZh;
+
+    const cityLower = city.toLowerCase();
+    if (
+      cityLower === countryZh.toLowerCase() ||
+      cityLower === rawCountry.toLowerCase() ||
+      cityLower === cc.toLowerCase()
+    ) {
+      return countryZh;
+    }
+    if (hasCJK(countryZh) && hasCJK(city)) {
+      return countryZh.includes(city) ? countryZh : countryZh + city;
+    }
+    return [countryZh, city].filter(Boolean).join(' ');
   }
 
   function normalizeCNISP(raw) {
@@ -709,6 +910,119 @@
     return String(rawISP || rawOrg || '').trim();
   }
 
+  /**
+   * 落地/通用 ISP 机构名精简裁剪：剥离冗余公司后缀 (LLC / Inc. / Ltd. / GmbH 等)，防止单行折行
+   */
+  function simplifyISPName(rawISP, rawOrg, countryCode) {
+    const combined = [rawISP, rawOrg].filter(Boolean).join(' ').trim();
+    if (!combined) return '';
+
+    const cc = toStr(countryCode, '').toUpperCase();
+    if (cc === 'CN') {
+      const entBrand = normalizeEntranceISP(rawISP, rawOrg, 'CN');
+      if (entBrand && entBrand !== combined) return entBrand.replace(/^中国/, '');
+    }
+
+    if (/cloudflare/i.test(combined)) return 'Cloudflare';
+    if (/alibaba|aliyun|alicloud/i.test(combined)) return cc === 'CN' ? '阿里云' : '阿里云国际';
+    if (/tencent|qcloud/i.test(combined)) return cc === 'CN' ? '腾讯云' : '腾讯云国际';
+    if (/huawei/i.test(combined)) return '华为云';
+    if (/\bucloud\b/i.test(combined)) return 'UCloud';
+    if (/\bdmit\b/i.test(combined)) return 'DMIT';
+    if (/\bxtom\b/i.test(combined)) return 'xTom';
+    if (/\bmisaka\b/i.test(combined)) return 'Misaka';
+    if (/\bkirino\b/i.test(combined)) return 'Kirino';
+    if (/zenlayer/i.test(combined)) return 'Zenlayer';
+    if (/\bamazon\b|\baws\b/i.test(combined)) return 'AWS';
+    if (/google\s*(llc|cloud|inc)?$/i.test(combined)) return 'Google';
+    if (/microsoft/i.test(combined)) return 'Microsoft';
+    if (/oracle/i.test(combined)) return 'Oracle';
+    if (/digitalocean/i.test(combined)) return 'DigitalOcean';
+    if (/vultr|choopa/i.test(combined)) return 'Vultr';
+    if (/linode|akamai/i.test(combined)) return 'Akamai';
+    if (/hetzner/i.test(combined)) return 'Hetzner';
+    if (/\bovh\b/i.test(combined)) return 'OVH';
+    if (/datacamp|cdn77/i.test(combined)) return 'DataCamp';
+    if (/comcast/i.test(combined)) return 'Comcast';
+    if (/charter\s+communications/i.test(combined)) return 'Charter';
+    if (/verizon/i.test(combined)) return 'Verizon';
+    if (/\bat&t\b/i.test(combined)) return 'AT&T';
+    if (/chunghwa\s*telecom|hinet/i.test(combined)) return 'HiNet';
+    if (/hong\s*kong\s*telecommunications|\bhkt\b/i.test(combined)) return 'HKT';
+    if (/\bpccw\b/i.test(combined)) return 'PCCW';
+    if (/\bsingtel\b|singapore\s+telecommunications/i.test(combined)) return 'Singtel';
+    if (/\bstarhub\b/i.test(combined)) return 'StarHub';
+    if (/softbank/i.test(combined)) return 'SoftBank';
+    if (/internet\s+initiative\s+japan|\biij\b/i.test(combined)) return 'IIJ';
+    if (/\bkddi\b/i.test(combined)) return 'KDDI';
+    if (/\bntt\b/i.test(combined)) return 'NTT';
+    if (/china\s*telecom\s*global|\bctgnet\b/i.test(combined)) return 'CTGNet';
+    if (/china\s*mobile\s*international|\bcmi\b/i.test(combined)) return 'CMI';
+    if (/china\s*telecom|chinanet/i.test(combined)) return '中国电信';
+    if (/china\s*unicom/i.test(combined)) return '中国联通';
+    if (/china\s*mobile/i.test(combined)) return '中国移动';
+
+    let base = toStr(rawISP || rawOrg, '');
+    base = base.replace(/^AS\d+\s+/i, '');
+    for (let i = 0; i < 3; i++) {
+      const next = base
+        .replace(
+          /[\s,.]+(Private\s+Limited|Pte\.?\s*Ltd\.?|Pty\.?\s*Ltd\.?|Co\.?,?\s*Ltd\.?|Corp\.?|Corporation|Incorporated|Inc\.?|Limited|Ltd\.?|L\.?L\.?C\.?|LLP|GmbH\s*&\s*Co\.?\s*KG|GmbH|S\.?A\.?S\.?|S\.?A\.?|S\.?p\.?A\.?|B\.?V\.?|N\.?V\.?|PLC|AG|AB|Oy|S\.?R\.?L\.?|Communications|Telecommunications|Technologies|Technology|Holdings?|Services|Service|Networks?|Group)\.?$/i,
+          ''
+        )
+        .trim();
+      if (!next || next === base) break;
+      base = next;
+    }
+    base = base.replace(/[,.\s]+$/, '').trim();
+    if (base.length > 22) {
+      const words = base.split(/\s+/);
+      if (words.length > 2) base = words.slice(0, 2).join(' ');
+    }
+    return base || toStr(rawISP || rawOrg, '');
+  }
+
+  function formatProtocolName(rawType) {
+    const t = toStr(rawType, '');
+    if (!t) return '';
+    const lower = t.toLowerCase();
+    const map = {
+      ss: 'Shadowsocks',
+      shadowsocks: 'Shadowsocks',
+      ssr: 'SSR',
+      shadowsocksr: 'SSR',
+      vmess: 'VMess',
+      vless: 'VLESS',
+      trojan: 'Trojan',
+      hysteria2: 'Hysteria2',
+      hy2: 'Hysteria2',
+      hysteria: 'Hysteria',
+      tuic: 'TUIC',
+      wireguard: 'WireGuard',
+      wg: 'WireGuard',
+      snell: 'Snell',
+      anytls: 'AnyTLS',
+      http: 'HTTP',
+      https: 'HTTPS',
+      socks5: 'SOCKS5',
+      socks: 'SOCKS5',
+      relay: 'Relay',
+    };
+    return map[lower] || t;
+  }
+
+  function formatShortIPv6(ip, maskEnabled) {
+    const s = toStr(ip, '');
+    if (!s) return '';
+    if (maskEnabled) return maskIPString(s, true);
+    if (s.length <= 22) return s;
+    const parts = s.split(':').filter(Boolean);
+    if (parts.length >= 3) {
+      return parts[0] + ':' + parts[1] + ':…:' + parts[parts.length - 1];
+    }
+    return s.slice(0, 20) + '…';
+  }
+
   function deduplicateGeoParts(parts) {
     const seen = new Set();
     const out = [];
@@ -721,18 +1035,6 @@
       out.push(item);
     }
     return out;
-  }
-
-  function cleanCNPlaceName(str) {
-    return String(str || '')
-      .replace(/省|市|壮族自治区|维吾尔自治区|回族自治区|自治区|特别行政区/g, '')
-      .trim();
-  }
-
-  function scoreBar(cleanPercent) {
-    const p = Math.max(0, Math.min(100, Math.round(cleanPercent)));
-    const filled = Math.round(p / 10);
-    return '▰'.repeat(filled) + '▱'.repeat(10 - filled);
   }
 
   // ============================================================================
@@ -749,14 +1051,19 @@
       );
       if (j && j.data && j.data.ip) {
         const loc = Array.isArray(j.data.location) ? j.data.location : [];
-        const geo = deduplicateGeoParts(loc.slice(1, 3)).join('');
+        const prov = normalizeCNPlace(loc[1]);
+        const city = normalizeCNPlace(loc[2]);
+        const geo = deduplicateGeoParts([prov, city]).join('');
+        const hopPlace = city || prov || '本地';
         const isp = normalizeCNISP(loc[4] || loc[3] || '');
+        const shortISP = isp.replace(/^中国/, '');
         return {
           ip: j.data.ip,
-          countryCode: loc[0] === '中国' ? 'CN' : '',
-          location: geo || loc[0] || '中国',
-          isp: isp ? '中国' + isp.replace(/^中国/, '') : '',
-          shortTag: (geo || '本地') + (isp || ''),
+          countryCode: loc[0] === '中国' || prov || city ? 'CN' : '',
+          location: geo || normalizeCNPlace(loc[0]) || '中国',
+          isp: shortISP ? '中国' + shortISP : '',
+          fullTag: (geo || '中国') + shortISP,
+          shortTag: hopPlace + shortISP,
         };
       }
     } catch (_) {}
@@ -767,14 +1074,19 @@
         Math.min(CFG.timeoutMs, 4000)
       );
       if (j && j.ip) {
-        const geo = deduplicateGeoParts([j.province, j.city]).join('');
+        const prov = normalizeCNPlace(j.province);
+        const city = normalizeCNPlace(j.city);
+        const geo = deduplicateGeoParts([prov, city]).join('');
+        const hopPlace = city || prov || '本地';
         const isp = normalizeCNISP(j.isp || '');
+        const shortISP = isp.replace(/^中国/, '');
         return {
           ip: j.ip,
-          countryCode: j.country === '中国' ? 'CN' : '',
-          location: geo || j.country || '中国',
-          isp: isp ? '中国' + isp.replace(/^中国/, '') : '',
-          shortTag: (geo || '本地') + (isp || ''),
+          countryCode: j.country === '中国' || prov || city ? 'CN' : '',
+          location: geo || normalizeCNPlace(j.country) || '中国',
+          isp: shortISP ? '中国' + shortISP : '',
+          fullTag: (geo || '中国') + shortISP,
+          shortTag: hopPlace + shortISP,
         };
       }
     } catch (_) {}
@@ -787,7 +1099,7 @@
       );
       const ip = res.body.trim();
       if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
-        return { ip, countryCode: 'CN', location: '中国', isp: '', shortTag: '本地网络' };
+        return { ip, countryCode: 'CN', location: '中国', isp: '', fullTag: '本地网络', shortTag: '本地网络' };
       }
     } catch (_) {}
 
@@ -967,7 +1279,7 @@
   }
 
   // ============================================================================
-  // 5. 四源 IP 纯净度与黑名单引擎 (MODE=purity: ipapi.is + my.ippure.com + proxycheck + ip-score)
+  // 5. 多源 IP 纯净度与黑名单引擎 (MODE=purity: ipapi.is + ipinfo widget 免费双ISP补位 + IPPure + proxycheck + ip-score)
   // ============================================================================
 
   function parseAbuserScore(raw) {
@@ -976,32 +1288,62 @@
     const numMatch = s.match(/([0-9]*\.?[0-9]+)/);
     const val = numMatch ? parseFloat(numMatch[1]) : NaN;
     const pct = Number.isFinite(val) ? (val * 100).toFixed(2) + '%' : '';
-    if (/very\s*high/i.test(s) || val >= 0.05) return { raw: s, percentText: pct, tagZh: '极高危', level: 'danger' };
+    if (/very\s*high/i.test(s) || val >= 0.05) return { raw: s, percentText: pct, tagZh: '极高', level: 'danger' };
     if (/high/i.test(s) || val >= 0.02) return { raw: s, percentText: pct, tagZh: '偏高', level: 'danger' };
-    if (/elevated/i.test(s) || val >= 0.008) return { raw: s, percentText: pct, tagZh: '中等偏高', level: 'warn' };
+    if (/elevated/i.test(s) || val >= 0.008) return { raw: s, percentText: pct, tagZh: '中等', level: 'warn' };
     if (/low/i.test(s) && !/very\s*low/i.test(s)) return { raw: s, percentText: pct, tagZh: '较低', level: 'good' };
-    return { raw: s, percentText: pct, tagZh: '极低 (纯净)', level: 'excellent' };
+    return { raw: s, percentText: pct, tagZh: '极低', level: 'excellent' };
   }
 
   function mapEntityTypeZh(typeStr) {
-    const t = String(typeStr || '').toLowerCase();
-    if (t === 'isp') return '家庭宽带(ISP)';
-    if (t === 'hosting') return 'IDC机房(Hosting)';
-    if (t === 'business') return '商业/政企宽带';
-    if (t === 'education') return '教育科研(Edu)';
-    if (t === 'government') return '政务机构(Gov)';
-    if (t === 'banking') return '金融机构网络';
-    return typeStr || '未知';
+    const t = String(typeStr || '').trim().toLowerCase();
+    if (t === 'isp') return '住宅 (ISP)';
+    if (t === 'hosting') return '机房 (Hosting)';
+    if (t === 'business') return '商业 (Business)';
+    if (t === 'education') return '教育 (Edu)';
+    if (t === 'government') return '政务 (Gov)';
+    if (t === 'banking') return '金融 (Banking)';
+    return '';
+  }
+
+  function deriveBandwidthNature(asnType, compType, isDatacenter, isMobile) {
+    if (asnType === 'isp' && compType === 'isp' && !isDatacenter) {
+      return { label: '双 ISP 原生家宽', level: 'excellent' };
+    }
+    if ((asnType === 'isp' || compType === 'isp') && !isDatacenter) {
+      return { label: isMobile ? '移动蜂窝网络' : '单 ISP 住宅宽带', level: 'good' };
+    }
+    if (asnType === 'hosting' || compType === 'hosting' || isDatacenter) {
+      return { label: '机房带宽', level: 'warn' };
+    }
+    if (asnType === 'business' || compType === 'business') {
+      return { label: '商业宽带', level: 'good' };
+    }
+    if (asnType === 'education' || compType === 'education') {
+      return { label: '教育科研网络', level: 'good' };
+    }
+    if (asnType === 'government' || compType === 'government') {
+      return { label: '政务机构网络', level: 'good' };
+    }
+    if (asnType === 'banking' || compType === 'banking') {
+      return { label: '金融机构网络', level: 'good' };
+    }
+    return { label: '', level: 'normal' };
   }
 
   function parseIPAPIIs(j) {
     if (!j || typeof j !== 'object' || j.error) return null;
-    const asnObj = j.asn || {};
-    const compObj = j.company || {};
-    const locObj = j.location || {};
+    if (!j.ip && !j.asn && !j.company && !j.location) return null;
+    const asnObj = j.asn && typeof j.asn === 'object' ? j.asn : {};
+    const compObj = j.company && typeof j.company === 'object' ? j.company : {};
+    const locObj = j.location && typeof j.location === 'object' ? j.location : {};
 
     const asnType = String(asnObj.type || '').toLowerCase();
     const compType = String(compObj.type || '').toLowerCase();
+    const asnTypeText = mapEntityTypeZh(asnType);
+    const companyTypeText = mapEntityTypeZh(compType);
+    const hasDualTypes = Boolean(asnTypeText && companyTypeText);
+
     const isDatacenter = Boolean(j.is_datacenter);
     const isVPN = Boolean(j.is_vpn);
     const isProxy = Boolean(j.is_proxy);
@@ -1010,24 +1352,7 @@
     const isCrawler = Boolean(j.is_crawler);
     const isMobile = Boolean(j.is_mobile);
 
-    let lineageLabel = '普通网络';
-    let lineageLevel = 'normal';
-    if (asnType === 'isp' && compType === 'isp' && !isDatacenter) {
-      lineageLabel = '✨ 双 ISP 原生家宽';
-      lineageLevel = 'excellent';
-    } else if ((asnType === 'isp' || compType === 'isp') && !isDatacenter) {
-      lineageLabel = isMobile ? '📱 蜂窝移动原生网络' : '🏠 单 ISP 住宅/宽带';
-      lineageLevel = 'good';
-    } else if (asnType === 'hosting' || compType === 'hosting' || isDatacenter) {
-      lineageLabel = '🖥️ IDC 机房托管';
-      lineageLevel = 'warn';
-    } else if (asnType === 'business' || compType === 'business') {
-      lineageLabel = '🏢 商业/政企宽带';
-      lineageLevel = 'good';
-    } else if (asnType === 'education' || compType === 'education') {
-      lineageLabel = '🎓 教育学术网络';
-      lineageLevel = 'good';
-    }
+    const nature = deriveBandwidthNature(asnType, compType, isDatacenter, isMobile);
 
     const asnCountry = String(asnObj.country || '').toUpperCase();
     const locCountry = String(locObj.country_code || '').toUpperCase();
@@ -1035,9 +1360,7 @@
     let broadcastText = '';
     if (asnCountry && locCountry) {
       isNativeGeo = asnCountry === locCountry;
-      broadcastText = isNativeGeo
-        ? '原生 IP (注册与落地均为 ' + locCountry + ')'
-        : '广播 IP (注册于 ' + asnCountry + ' → 落地 ' + locCountry + ')';
+      broadcastText = isNativeGeo ? '原生 IP' : '广播 IP';
     }
 
     const asnScore = parseAbuserScore(asnObj.abuser_score);
@@ -1058,17 +1381,19 @@
     }
     riskIndex = Math.min(100, riskIndex);
 
+    const rawASN = toStr(asnObj.asn, '').replace(/^AS/i, '');
     return {
-      asn: asnObj.asn ? 'AS' + asnObj.asn : '',
+      asn: rawASN ? 'AS' + rawASN : '',
       asnOrg: asnObj.org || '',
-      asnTypeText: mapEntityTypeZh(asnType),
+      asnTypeText,
       asnRoute: asnObj.route || '',
       companyName: compObj.name || '',
-      companyTypeText: mapEntityTypeZh(compType),
+      companyTypeText,
       companyNetwork: compObj.network || '',
+      hasDualTypes,
       rir: j.rir || '',
-      lineageLabel,
-      lineageLevel,
+      lineageLabel: nature.label,
+      lineageLevel: nature.level,
       isNativeGeo,
       broadcastText,
       primaryScore,
@@ -1083,7 +1408,115 @@
         mobile: isMobile,
       },
       countryCode: locCountry,
+      source: 'ipapi.is',
     };
+  }
+
+  /**
+   * 免 Key 双维属性备用源解析器：https://ipinfo.io/widget/demo/{ip}
+   * 解析 data.asn.type、data.company.type 与 data.privacy
+   */
+  function parseIPInfoWidget(j) {
+    if (!j || typeof j !== 'object') return null;
+    const d = j.data && typeof j.data === 'object' ? j.data : j;
+    if (d.error || (!d.asn && !d.company && !d.privacy)) return null;
+
+    const asnObj = d.asn && typeof d.asn === 'object' ? d.asn : {};
+    const compObj = d.company && typeof d.company === 'object' ? d.company : {};
+    const privObj = d.privacy && typeof d.privacy === 'object' ? d.privacy : {};
+    const abuseObj = d.abuse && typeof d.abuse === 'object' ? d.abuse : {};
+
+    const asnType = String(asnObj.type || '').toLowerCase();
+    const compType = String(compObj.type || '').toLowerCase();
+    const asnTypeText = mapEntityTypeZh(asnType);
+    const companyTypeText = mapEntityTypeZh(compType);
+    const hasDualTypes = Boolean(asnTypeText && companyTypeText);
+
+    const isDatacenter = Boolean(privObj.hosting || d.is_hosting);
+    const isVPN = Boolean(privObj.vpn);
+    const isProxy = Boolean(privObj.proxy || privObj.relay);
+    const isTor = Boolean(privObj.tor);
+    const isMobile = Boolean(d.is_mobile);
+
+    const nature = deriveBandwidthNature(asnType, compType, isDatacenter, isMobile);
+
+    const locCountry = toStr(d.country, '').toUpperCase();
+    const regCountry = toStr(abuseObj.country, '').toUpperCase();
+    let isNativeGeo = null;
+    let broadcastText = '';
+    if (regCountry && locCountry) {
+      isNativeGeo = regCountry === locCountry;
+      broadcastText = isNativeGeo ? '原生 IP' : '广播 IP';
+    }
+
+    let riskIndex = 0;
+    if (isDatacenter || asnType === 'hosting' || compType === 'hosting') riskIndex += 20;
+    if (isVPN) riskIndex += 20;
+    if (isProxy) riskIndex += 25;
+    if (isTor) riskIndex += 35;
+    riskIndex = Math.min(100, riskIndex);
+
+    const rawASN = toStr(asnObj.asn, '').replace(/^AS/i, '');
+    return {
+      asn: rawASN ? 'AS' + rawASN : '',
+      asnOrg: toStr(asnObj.name, ''),
+      asnTypeText,
+      asnRoute: toStr(asnObj.route, ''),
+      companyName: toStr(compObj.name, ''),
+      companyTypeText,
+      companyNetwork: toStr(abuseObj.network, ''),
+      hasDualTypes,
+      rir: '',
+      lineageLabel: nature.label,
+      lineageLevel: nature.level,
+      isNativeGeo,
+      broadcastText,
+      primaryScore: null,
+      riskIndex,
+      flags: {
+        datacenter: isDatacenter,
+        vpn: isVPN,
+        proxy: isProxy,
+        tor: isTor,
+        abuser: false,
+        crawler: false,
+        mobile: isMobile,
+      },
+      countryCode: locCountry,
+      source: 'ipinfo.io',
+    };
+  }
+
+  function mergePurityRecords(primary, fallback) {
+    if (!primary) return fallback || null;
+    if (!fallback) return primary;
+    const asnTypeText = primary.asnTypeText || fallback.asnTypeText;
+    const companyTypeText = primary.companyTypeText || fallback.companyTypeText;
+    const hasDualTypes = Boolean(asnTypeText && companyTypeText);
+    const flags = {
+      datacenter: Boolean(primary.flags.datacenter || fallback.flags.datacenter),
+      vpn: Boolean(primary.flags.vpn || fallback.flags.vpn),
+      proxy: Boolean(primary.flags.proxy || fallback.flags.proxy),
+      tor: Boolean(primary.flags.tor || fallback.flags.tor),
+      abuser: Boolean(primary.flags.abuser || fallback.flags.abuser),
+      crawler: Boolean(primary.flags.crawler || fallback.flags.crawler),
+      mobile: Boolean(primary.flags.mobile || fallback.flags.mobile),
+    };
+    const isNativeGeo = primary.isNativeGeo !== null ? primary.isNativeGeo : fallback.isNativeGeo;
+    return Object.assign({}, fallback, primary, {
+      asn: primary.asn || fallback.asn,
+      asnOrg: primary.asnOrg || fallback.asnOrg,
+      companyName: primary.companyName || fallback.companyName,
+      asnTypeText,
+      companyTypeText,
+      hasDualTypes,
+      lineageLabel: primary.lineageLabel || fallback.lineageLabel,
+      lineageLevel: primary.lineageLabel ? primary.lineageLevel : fallback.lineageLevel,
+      isNativeGeo,
+      broadcastText: primary.broadcastText || fallback.broadcastText,
+      riskIndex: Math.max(primary.riskIndex || 0, fallback.riskIndex || 0),
+      flags,
+    });
   }
 
   function parseIPPure(j) {
@@ -1115,10 +1548,11 @@
     }
     let url = 'https://api.ipapi.is/?q=' + encodeURIComponent(ip);
     if (CFG.ipapiKey) url += '&key=' + encodeURIComponent(CFG.ipapiKey);
+    const reqTimeout = Math.min(timeoutOverride || CFG.timeoutMs, 5000);
     try {
-      const j = await fetchJSON(buildOutboundOpts(url, targetNode), timeoutOverride || CFG.timeoutMs);
+      const j = await fetchJSON(buildOutboundOpts(url, targetNode), reqTimeout);
       const parsed = parseIPAPIIs(j);
-      if (parsed) writeIPCache(ip, 'purity', parsed);
+      if (parsed && parsed.hasDualTypes) writeIPCache(ip, 'purity', parsed);
       return parsed;
     } catch (e) {
       log('ipapi.is error: ' + (e.message || e));
@@ -1126,14 +1560,51 @@
     }
   }
 
+  async function queryIPInfoWidget(ip, targetNode, timeoutOverride) {
+    if (!ip) return null;
+    const url = 'https://ipinfo.io/widget/demo/' + encodeURIComponent(ip);
+    const reqTimeout = Math.min(timeoutOverride || CFG.timeoutMs, 5000);
+    try {
+      const j = await fetchJSON(
+        buildOutboundOpts(url, targetNode, { Referer: 'https://ipinfo.io/' }),
+        reqTimeout
+      );
+      return parseIPInfoWidget(j);
+    } catch (e) {
+      log('ipinfo widget error: ' + (e.message || e));
+      return null;
+    }
+  }
+
   /**
-   * 独立免鉴权纯净度交叉核验与降级兜底源：my.ippure.com/v1/info
+   * 双 ISP 属性主备查询：优先 ipapi.is，当未配 Key 限流或缺失双维类型时自动由 ipinfo.io/widget/demo/{ip} 补位
+   */
+  async function queryPurityWithFallback(ip, targetNode, timeoutOverride, cacheTTLMs) {
+    if (!ip) return null;
+    if (cacheTTLMs && cacheTTLMs > 0) {
+      const cached = readIPCache(ip, 'purity', cacheTTLMs);
+      if (cached && cached.hasDualTypes) return cached;
+    }
+    const subTimeout = Math.min(timeoutOverride || CFG.timeoutMs, 5000);
+    const primary = await queryPurityIPAPI(ip, targetNode, subTimeout, 0);
+    if (primary && primary.hasDualTypes) {
+      writeIPCache(ip, 'purity', primary);
+      return primary;
+    }
+    const fallback = await queryIPInfoWidget(ip, targetNode, subTimeout);
+    const merged = mergePurityRecords(primary, fallback);
+    if (merged) writeIPCache(ip, 'purity', merged);
+    return merged;
+  }
+
+  /**
+   * 独立免鉴权纯净度与原生广播核验源：my.ippure.com/v1/info
    */
   async function queryIPPure(targetNode) {
     try {
       const j = await fetchJSON(
         buildOutboundOpts('https://my.ippure.com/v1/info', targetNode),
-        Math.min(CFG.timeoutMs, 5500)
+        Math.min(CFG.timeoutMs, 5000)
       );
       return parseIPPure(j);
     } catch (e) {
@@ -1145,23 +1616,23 @@
   async function queryProxyCheckIO(ip, targetNode) {
     const url = 'http://proxycheck.io/v2/' + encodeURIComponent(ip) + '?vpn=1&asn=1&risk=1';
     try {
-      const j = await fetchJSON(buildOutboundOpts(url, targetNode), Math.min(CFG.timeoutMs, 5500));
+      const j = await fetchJSON(buildOutboundOpts(url, targetNode), Math.min(CFG.timeoutMs, 5000));
       if (j && (j.status === 'ok' || j.status === 'warning') && j[ip]) {
         const rec = j[ip];
         const rawType = String(rec.type || '');
         const typeZhMap = {
           Residential: '住宅宽带',
-          Wireless: '移动蜂窝',
-          Business: '商业/政企宽带',
-          Hosting: 'IDC 机房',
+          Wireless: '移动蜂窝网络',
+          Business: '商业宽带',
+          Hosting: '机房带宽',
           VPN: '商业 VPN',
           TOR: 'Tor 节点',
-          Compromised: '被控肉鸡',
+          Compromised: '风险主机',
         };
         return {
           proxy: rec.proxy === 'yes',
           type: rawType,
-          typeZh: typeZhMap[rawType] || rawType || '常规网络',
+          typeZh: typeZhMap[rawType] || '',
           risk: Number.isFinite(Number(rec.risk)) ? Number(rec.risk) : null,
           provider: rec.provider || '',
         };
@@ -1184,7 +1655,7 @@
           },
           body: '',
         }),
-        Math.min(CFG.timeoutMs + 1500, 9500)
+        Math.min(CFG.timeoutMs, 5000)
       );
       if (res.status >= 200 && res.status < 400 && res.body) {
         const j = JSON.parse(res.body);
@@ -1194,7 +1665,7 @@
         return {
           totalBlacklists: blKeys.length,
           listedCount: hits.length,
-          listedNames: hits.slice(0, 5),
+          listedNames: hits.slice(0, 4),
         };
       }
     } catch (e) {
@@ -1227,60 +1698,60 @@
     23910: { name: '教育网 CERNET2', tier: 'cn-opt' },
     7497: { name: '科技网 CSTNET', tier: 'cn-std' },
 
-    3356: { name: 'Lumen (Level3)', tier: 'tier1' },
-    1299: { name: 'Arelion (Telia)', tier: 'tier1' },
+    3356: { name: 'Lumen', tier: 'tier1' },
+    1299: { name: 'Telia', tier: 'tier1' },
     2914: { name: 'NTT', tier: 'tier1' },
     174: { name: 'Cogent', tier: 'tier1' },
     3257: { name: 'GTT', tier: 'tier1' },
     6453: { name: 'Tata', tier: 'tier1' },
-    3491: { name: 'PCCW 电讯盈科', tier: 'tier1' },
+    3491: { name: 'PCCW', tier: 'tier1' },
     6762: { name: 'Sparkle', tier: 'tier1' },
     6461: { name: 'Zayo', tier: 'tier1' },
-    3320: { name: 'Deutsche Telekom', tier: 'tier1' },
+    3320: { name: 'DTAG', tier: 'tier1' },
     5511: { name: 'Orange', tier: 'tier1' },
     12956: { name: 'Telxius', tier: 'tier1' },
     701: { name: 'Verizon', tier: 'tier1' },
     7018: { name: 'AT&T', tier: 'tier1' },
-    6830: { name: 'Liberty Global', tier: 'tier1' },
+    6830: { name: 'Liberty', tier: 'tier1' },
 
-    17676: { name: '日本软银 SoftBank', tier: 'apac-opt' },
-    4725: { name: '日本软银 ODN', tier: 'apac-opt' },
-    2497: { name: '日本 IIJ', tier: 'apac-opt' },
-    2516: { name: '日本 KDDI', tier: 'apac' },
-    4713: { name: '日本 NTT OCN', tier: 'apac' },
-    2527: { name: '日本 So-net', tier: 'apac' },
-    7506: { name: '日本 GMO', tier: 'apac' },
-    2500: { name: '日本 WIDE', tier: 'apac' },
+    17676: { name: 'SoftBank', tier: 'apac-opt' },
+    4725: { name: 'SoftBank ODN', tier: 'apac-opt' },
+    2497: { name: 'IIJ', tier: 'apac-opt' },
+    2516: { name: 'KDDI', tier: 'apac' },
+    4713: { name: 'NTT OCN', tier: 'apac' },
+    2527: { name: 'So-net', tier: 'apac' },
+    7506: { name: 'GMO', tier: 'apac' },
+    2500: { name: 'WIDE', tier: 'apac' },
     4760: { name: '香港 HKT', tier: 'apac' },
     9304: { name: '香港 HGC', tier: 'apac' },
     9269: { name: '香港 HKBN', tier: 'apac' },
     4515: { name: '香港 PCCW', tier: 'apac' },
     10118: { name: '香港 CMHK', tier: 'apac' },
     4609: { name: '澳门 CTM', tier: 'apac' },
-    3462: { name: '中华电信 HiNet', tier: 'apac' },
-    9924: { name: '台湾大哥大 TFN', tier: 'apac' },
-    4780: { name: '台湾远传 Seednet', tier: 'apac' },
-    4637: { name: 'Telstra 澳洲电讯', tier: 'apac' },
-    7473: { name: 'Singtel 新电信', tier: 'apac' },
-    4657: { name: 'StarHub 星和', tier: 'apac' },
-    24482: { name: 'SG.GS 新加坡骨干', tier: 'apac' },
+    3462: { name: 'HiNet', tier: 'apac' },
+    9924: { name: 'TFN', tier: 'apac' },
+    4780: { name: 'Seednet', tier: 'apac' },
+    4637: { name: 'Telstra', tier: 'apac' },
+    7473: { name: 'Singtel', tier: 'apac' },
+    4657: { name: 'StarHub', tier: 'apac' },
+    24482: { name: 'SG.GS', tier: 'apac' },
     18106: { name: 'ViewQwest', tier: 'apac' },
     4766: { name: '韩国 KT', tier: 'apac' },
     9318: { name: '韩国 SKB', tier: 'apac' },
-    3786: { name: '韩国 LG DACOM', tier: 'apac' },
+    3786: { name: 'LG DACOM', tier: 'apac' },
 
     4635: { name: '香港 HKIX', tier: 'ixp' },
     4777: { name: '日本 JPIX', tier: 'ixp' },
-    58952: { name: 'SGIX 新加坡交换', tier: 'ixp' },
-    59105: { name: 'BBIX 亚太交换', tier: 'ixp' },
+    58952: { name: '新加坡 SGIX', tier: 'ixp' },
+    59105: { name: '亚太 BBIX', tier: 'ixp' },
     24115: { name: 'Equinix IX', tier: 'ixp' },
 
     6939: { name: 'HE', tier: 'transit' },
     9002: { name: 'RETN', tier: 'transit' },
-    137409: { name: 'GSL Networks', tier: 'transit' },
+    137409: { name: 'GSL', tier: 'transit' },
     33891: { name: 'Core-Backbone', tier: 'transit' },
     906: { name: 'DMIT', tier: 'agg' },
-    54574: { name: 'DMIT 中国优化', tier: 'cn-opt' },
+    54574: { name: 'DMIT 优化', tier: 'cn-opt' },
     21859: { name: 'Zenlayer', tier: 'agg' },
     3214: { name: 'xTom', tier: 'agg' },
     924: { name: 'xTom', tier: 'agg' },
@@ -1292,7 +1763,7 @@
     16509: { name: 'AWS', tier: 'cloud' },
     14618: { name: 'AWS', tier: 'cloud' },
     15169: { name: 'Google', tier: 'cloud' },
-    8075: { name: 'Microsoft Azure', tier: 'cloud' },
+    8075: { name: 'Azure', tier: 'cloud' },
     45102: { name: '阿里云国际', tier: 'cloud' },
     37963: { name: '阿里云', tier: 'cloud' },
     132203: { name: '腾讯云国际', tier: 'cloud' },
@@ -1301,12 +1772,12 @@
     136907: { name: '华为云国际', tier: 'cloud' },
     135377: { name: 'UCloud', tier: 'cloud' },
     138371: { name: '火山引擎', tier: 'cloud' },
-    20473: { name: 'Vultr (Choopa)', tier: 'cloud' },
-    60068: { name: 'CDN77 (DataCamp)', tier: 'cloud' },
-    16276: { name: 'OVHcloud', tier: 'cloud' },
+    20473: { name: 'Vultr', tier: 'cloud' },
+    60068: { name: 'DataCamp', tier: 'cloud' },
+    16276: { name: 'OVH', tier: 'cloud' },
     24940: { name: 'Hetzner', tier: 'cloud' },
     14061: { name: 'DigitalOcean', tier: 'cloud' },
-    63949: { name: 'Akamai (Linode)', tier: 'cloud' },
+    63949: { name: 'Akamai', tier: 'cloud' },
   };
 
   function parseASNNum(asnRaw) {
@@ -1324,6 +1795,58 @@
       name: rec ? rec.name : '',
       tier: rec ? rec.tier : 'other',
     };
+  }
+
+  /**
+   * 将多行 BGP 路由数据浓缩为单行精炼描述（去除 /24 前缀、聚合网关独立行与百分比噪音）
+   * 例如：「国际 Tier-1 多线 (Cogent / Zayo / GTT)」「中国优化 (电信 CN2 / 联通 9929)」「香港 HKIX / 香港 HKT」
+   */
+  function formatBGPCompactSummary(bgp) {
+    if (!bgp || typeof bgp !== 'object') return '';
+    const ups = Array.isArray(bgp.upstreams) ? bgp.upstreams : [];
+    if (ups.length === 0) {
+      if (bgp.originName) return 'Anycast 直连 (' + bgp.originName + ')';
+      return bgp.gradeShort || 'Anycast 直连';
+    }
+
+    const namedPeers = [];
+    for (const u of ups) {
+      if (u && u.name && !namedPeers.includes(u.name)) namedPeers.push(u.name);
+    }
+    const corePeerText =
+      namedPeers.length > 0
+        ? namedPeers.slice(0, 3).join(' / ')
+        : ups
+            .slice(0, 2)
+            .map((u) => u.short || u.asn)
+            .filter(Boolean)
+            .join(' / ');
+
+    const cnOpts = Array.isArray(bgp.cnOptNames) ? bgp.cnOptNames : [];
+    if (cnOpts.length > 0) {
+      return '中国优化 (' + cnOpts.slice(0, 3).join(' / ') + ')';
+    }
+    const apacOpts = Array.isArray(bgp.apacOptNames) ? bgp.apacOptNames : [];
+    if (apacOpts.length > 0) {
+      const merged = deduplicateGeoParts(apacOpts.concat(namedPeers)).slice(0, 3).join(' / ');
+      return '亚太优化' + (merged ? ' (' + merged + ')' : '');
+    }
+    const cnStds = Array.isArray(bgp.cnStdNames) ? bgp.cnStdNames : [];
+    if (cnStds.length > 0) {
+      return '三网直连 (' + cnStds.slice(0, 3).join(' / ') + ')';
+    }
+
+    let tier1Count = 0;
+    for (const u of ups) {
+      if (u && u.tier === 'tier1') tier1Count++;
+    }
+    if (tier1Count >= 2) {
+      return '国际 Tier-1 多线' + (corePeerText ? ' (' + corePeerText + ')' : '');
+    }
+    if (tier1Count === 1) {
+      return '国际 Tier-1' + (corePeerText ? ' (' + corePeerText + ')' : '');
+    }
+    return corePeerText || bgp.gradeShort || '国际 BGP';
   }
 
   function parseBGPState(j) {
@@ -1380,19 +1903,23 @@
     const originInfo = lookupBGPASN(originNum);
 
     if (totalMultiHop === 0) {
-      return {
+      const singleObj = {
         prefix,
         originASN: originInfo.asn,
         originName: originInfo.name,
         peerCount: routes.length,
-        gradeLabel: '🌐 Anycast 自治直连路由',
-        gradeShort: 'Anycast 自治直连',
+        gradeLabel: 'Anycast 直连',
+        gradeShort: 'Anycast 直连',
         gradeLevel: 'good',
         aggregator: null,
         upstreams: [],
         shortNames: originInfo.name || originInfo.asn,
         cnOptNames: [],
+        apacOptNames: [],
+        cnStdNames: [],
       };
+      singleObj.compactText = formatBGPCompactSummary(singleObj);
+      return singleObj;
     }
 
     const hop1Sorted = [...hop1Counts.entries()].sort((a, b) => b[1] - a[1]);
@@ -1441,38 +1968,38 @@
       if (u.tier === 'tier1') tier1Count++;
     }
 
-    let gradeLabel = '🌐 国际标准 BGP 路由';
-    let gradeShort = '国际标准 BGP';
+    let gradeLabel = '国际 BGP';
+    let gradeShort = '国际 BGP';
     let gradeLevel = 'normal';
 
     if (cnOptNames.length > 0) {
-      gradeLabel = '🚀 中国大陆优化 BGP (' + cnOptNames.join(' / ') + ')';
-      gradeShort = '中国优化 (' + cnOptNames.slice(0, 2).join('/') + ')';
+      gradeLabel = '中国优化 (' + cnOptNames.join(' / ') + ')';
+      gradeShort = '中国优化 (' + cnOptNames.slice(0, 2).join(' / ') + ')';
       gradeLevel = 'excellent';
     } else if (apacOptNames.length > 0) {
-      gradeLabel = '⚡ 亚太对华友好骨干 (' + apacOptNames.join(' / ') + ')';
-      gradeShort = '亚太优化 (' + apacOptNames.slice(0, 2).join('/') + ')';
+      gradeLabel = '亚太优化 (' + apacOptNames.join(' / ') + ')';
+      gradeShort = '亚太优化 (' + apacOptNames.slice(0, 2).join(' / ') + ')';
       gradeLevel = 'good';
     } else if (cnStdNames.length > 0) {
-      gradeLabel = '🇨🇳 三网普通直连 BGP (' + cnStdNames.join(' / ') + ')';
+      gradeLabel = '三网直连 (' + cnStdNames.join(' / ') + ')';
       gradeShort = '三网直连 BGP';
       gradeLevel = 'good';
     } else if (tier1Count >= 2) {
-      gradeLabel = '🌐 国际多线 Tier-1 BGP';
-      gradeShort = '国际多线 Tier-1';
+      gradeLabel = '国际 Tier-1 多线';
+      gradeShort = '国际 Tier-1 多线';
       gradeLevel = 'normal';
     } else if (tier1Count === 1) {
-      gradeLabel = '🌐 国际单线 Tier-1 BGP';
+      gradeLabel = '国际 Tier-1';
       gradeShort = '国际 Tier-1';
       gradeLevel = 'normal';
     }
 
     const shortNames = upstreams
-      .slice(0, 4)
+      .slice(0, 3)
       .map((u) => u.short)
       .join(' / ');
 
-    return {
+    const resObj = {
       prefix,
       originASN: originInfo.asn,
       originName: originInfo.name,
@@ -1484,7 +2011,11 @@
       upstreams,
       shortNames,
       cnOptNames,
+      apacOptNames,
+      cnStdNames,
     };
+    resObj.compactText = formatBGPCompactSummary(resObj);
+    return resObj;
   }
 
   async function queryBGPUpstreams(ip, targetNode, cacheTTLMs) {
@@ -1527,7 +2058,7 @@
   }
 
   async function checkChatGPTUnlock(targetNode) {
-    const t = Math.min(CFG.timeoutMs, 6000);
+    const t = Math.min(CFG.timeoutMs, 5500);
     const [traceRes, iosRes] = await Promise.all([
       httpRequest('get', buildOutboundOpts('https://chatgpt.com/cdn-cgi/trace', targetNode), t).catch(() => null),
       httpRequest(
@@ -1544,7 +2075,7 @@
       return { name: 'ChatGPT', state: 'warn', text: '连接超时' };
     }
     if (loc && OPENAI_BLOCKED.has(loc)) {
-      return { name: 'ChatGPT', state: 'no', text: '地区不支持 [' + loc + ']' };
+      return { name: 'ChatGPT', state: 'no', text: '地区受限 [' + loc + ']' };
     }
 
     const iosBody = (iosRes && iosRes.body) || '';
@@ -1555,16 +2086,16 @@
     const regTag = loc ? ' [' + loc + ']' : '';
 
     if (!iosBlocked && iosRes.status >= 200 && iosRes.status < 400) {
-      return { name: 'ChatGPT', state: 'yes', text: '完整解锁' + regTag + ' (Web + App)' };
+      return { name: 'ChatGPT', state: 'yes', text: '完整解锁' + regTag + ' (Web+App)' };
     }
     if (loc) {
-      return { name: 'ChatGPT', state: 'partial', text: '仅网页端可用' + regTag + ' (App受限)' };
+      return { name: 'ChatGPT', state: 'partial', text: '仅网页可用' + regTag };
     }
-    return { name: 'ChatGPT', state: 'no', text: '访问受限 / 风控拦截' };
+    return { name: 'ChatGPT', state: 'no', text: '访问受限' };
   }
 
   async function checkClaudeUnlock(targetNode) {
-    const t = Math.min(CFG.timeoutMs, 6000);
+    const t = Math.min(CFG.timeoutMs, 5500);
     try {
       const res = await httpRequest(
         'get',
@@ -1574,17 +2105,17 @@
       const kv = parseTraceMap(res.body);
       const loc = (kv.loc || '').toUpperCase();
       if (loc && CLAUDE_BLOCKED.has(loc)) {
-        return { name: 'Claude', state: 'no', text: '地区不支持 [' + loc + ']' };
+        return { name: 'Claude', state: 'no', text: '地区受限 [' + loc + ']' };
       }
       if (loc) {
-        return { name: 'Claude', state: 'yes', text: '支持访问 [' + loc + ']' };
+        return { name: 'Claude', state: 'yes', text: '已解锁 [' + loc + ']' };
       }
     } catch (_) {}
-    return { name: 'Claude', state: 'warn', text: '连接超时或受限' };
+    return { name: 'Claude', state: 'warn', text: '连接超时' };
   }
 
   async function checkGeminiUnlock(targetNode, fallbackCC) {
-    const t = Math.min(CFG.timeoutMs, 6500);
+    const t = Math.min(CFG.timeoutMs, 5500);
     try {
       const res = await httpRequest(
         'get',
@@ -1600,7 +2131,7 @@
         res.status === 403 ||
         /isn't currently supported|not available in your country|faq#supported_countries/i.test(body + ' ' + hdrLoc)
       ) {
-        return { name: 'Gemini', state: 'no', text: '当前地区不支持' + (fallbackCC ? ' [' + fallbackCC + ']' : '') };
+        return { name: 'Gemini', state: 'no', text: '地区受限' + (fallbackCC ? ' [' + fallbackCC + ']' : '') };
       }
       if (fallbackCC && GEMINI_BLOCKED.has(fallbackCC.toUpperCase())) {
         return { name: 'Gemini', state: 'no', text: '地区受限 [' + fallbackCC.toUpperCase() + ']' };
@@ -1609,12 +2140,12 @@
         const ccMatch = body.match(/,"([A-Z]{2})","[a-z]{2}(?:-[A-Z]{2})?"/);
         const cc = (ccMatch && ccMatch[1]) || (fallbackCC || '').toUpperCase();
         if (cc && GEMINI_BLOCKED.has(cc)) {
-          return { name: 'Gemini', state: 'no', text: '地区不支持 [' + cc + ']' };
+          return { name: 'Gemini', state: 'no', text: '地区受限 [' + cc + ']' };
         }
-        return { name: 'Gemini', state: 'yes', text: '支持访问' + (cc ? ' [' + cc + ']' : '') };
+        return { name: 'Gemini', state: 'yes', text: '已解锁' + (cc ? ' [' + cc + ']' : '') };
       }
     } catch (_) {}
-    return { name: 'Gemini', state: 'warn', text: '检测超时' };
+    return { name: 'Gemini', state: 'warn', text: '连接超时' };
   }
 
   function extractNetflixRegion(res) {
@@ -1653,7 +2184,7 @@
     }
     if (isNetflixTitleAvailable(nonOrig)) {
       const reg = extractNetflixRegion(nonOrig);
-      return { name: 'Netflix', state: 'yes', text: '完整解锁 (含非自制剧) [' + reg + ']' };
+      return { name: 'Netflix', state: 'yes', text: '完整解锁 [' + reg + ']' };
     }
 
     const orig = await httpRequest(
@@ -1663,13 +2194,13 @@
     ).catch(() => null);
     if (isNetflixTitleAvailable(orig)) {
       const reg = extractNetflixRegion(orig);
-      return { name: 'Netflix', state: 'partial', text: '仅解锁自制剧 (Originals) [' + reg + ']' };
+      return { name: 'Netflix', state: 'partial', text: '仅自制剧 [' + reg + ']' };
     }
-    return { name: 'Netflix', state: 'no', text: '未解锁 / 代理被拦截' };
+    return { name: 'Netflix', state: 'no', text: '未解锁' };
   }
 
   async function checkYouTubePremiumUnlock(targetNode) {
-    const t = Math.min(CFG.timeoutMs, 6000);
+    const t = Math.min(CFG.timeoutMs, 5500);
     try {
       const res = await httpRequest(
         'get',
@@ -1681,15 +2212,15 @@
       const b = res.body || '';
       const hdrLoc = String((res.headers && (res.headers.Location || res.headers.location)) || '');
       if (/www\.google\.cn/i.test(b + ' ' + hdrLoc)) {
-        return { name: 'YouTube', state: 'no', text: '送中警告 [CN] (无会员权益)' };
+        return { name: 'YouTube', state: 'no', text: '送中 [CN]' };
       }
       if (/Premium is not available in your country|在您所在的国家\/地区尚不可用/i.test(b)) {
-        return { name: 'YouTube', state: 'partial', text: '网页可用 (当前地区未开会员)' };
+        return { name: 'YouTube', state: 'partial', text: '可用 (无会员区)' };
       }
       const m = b.match(/"INNERTUBE_CONTEXT_GL"\s*:\s*"([A-Z]{2})"/) || b.match(/"countryCode"\s*:\s*"([A-Z]{2})"/);
       const cc = m ? m[1].toUpperCase() : '';
       if (cc === 'CN') {
-        return { name: 'YouTube', state: 'no', text: '送中警告 [CN]' };
+        return { name: 'YouTube', state: 'no', text: '送中 [CN]' };
       }
       return { name: 'YouTube', state: 'yes', text: '支持 Premium' + (cc ? ' [' + cc + ']' : '') };
     } catch (_) {
@@ -1698,7 +2229,7 @@
   }
 
   async function checkDisneyPlusUnlock(targetNode, fallbackCC) {
-    const t = Math.min(CFG.timeoutMs, 6000);
+    const t = Math.min(CFG.timeoutMs, 5500);
     const DISNEY_UNSUPPORTED = new Set(['CN', 'RU', 'BY', 'IR', 'KP', 'CU', 'SY', 'VN']);
     try {
       const res = await httpRequest(
@@ -1717,7 +2248,7 @@
           b + ' ' + hdrLoc
         )
       ) {
-        return { name: 'Disney+', state: 'no', text: '未解锁 / 地区不可用' };
+        return { name: 'Disney+', state: 'no', text: '未解锁' };
       }
       const mBody = b.match(/content="https:\/\/www\.disneyplus\.com\/([a-z]{2}(?:-[a-z]{2})?)"/i);
       const mHdr = hdrLoc.match(/disneyplus\.com\/(?:[a-z]{2}-)?([a-z]{2})(?:[/?#]|$)/i);
@@ -1730,14 +2261,14 @@
         return { name: 'Disney+', state: 'no', text: '地区未开通 [' + cc + ']' };
       }
       if (res.status >= 200 && res.status < 400) {
-        return { name: 'Disney+', state: 'yes', text: '支持解锁' + (cc ? ' [' + cc + ']' : '') };
+        return { name: 'Disney+', state: 'yes', text: '已解锁' + (cc ? ' [' + cc + ']' : '') };
       }
     } catch (_) {}
-    return { name: 'Disney+', state: 'warn', text: '检测超时' };
+    return { name: 'Disney+', state: 'warn', text: '连接超时' };
   }
 
   async function checkTikTokUnlock(targetNode, fallbackCC) {
-    const t = Math.min(CFG.timeoutMs, 6000);
+    const t = Math.min(CFG.timeoutMs, 5500);
     try {
       const res = await httpRequest(
         'get',
@@ -1748,7 +2279,7 @@
       );
       const b = res.body || '';
       if (res.status === 403 || /Access Denied|Please wait\.\.\./i.test(b.slice(0, 1500))) {
-        return { name: 'TikTok', state: 'no', text: '节点 IP 被拦截 (403)' };
+        return { name: 'TikTok', state: 'no', text: 'IP 受限 (403)' };
       }
       const m =
         b.match(/"region"\s*:\s*"([A-Z]{2})"/) ||
@@ -1756,17 +2287,17 @@
         b.match(/"countryCode"\s*:\s*"([A-Z]{2})"/);
       const cc = (m && m[1]) || (fallbackCC || '').toUpperCase();
       if (cc && TIKTOK_BLOCKED.has(cc)) {
-        return { name: 'TikTok', state: 'no', text: '锁区不可用 [' + cc + ']' };
+        return { name: 'TikTok', state: 'no', text: '锁区 [' + cc + ']' };
       }
       if (res.status >= 200 && res.status < 400) {
-        return { name: 'TikTok', state: 'yes', text: '正常解锁' + (cc ? ' [' + cc + ']' : '') };
+        return { name: 'TikTok', state: 'yes', text: '已解锁' + (cc ? ' [' + cc + ']' : '') };
       }
     } catch (_) {}
     return { name: 'TikTok', state: 'warn', text: '连接超时' };
   }
 
   async function checkBahamutUnlock(targetNode) {
-    const t = Math.min(CFG.timeoutMs, 5000);
+    const t = Math.min(CFG.timeoutMs, 4500);
     try {
       const res = await httpRequest(
         'get',
@@ -1774,11 +2305,11 @@
         t
       );
       if (res.body && res.body.includes('animeSn')) {
-        return { name: '动画疯', state: 'yes', text: '完整解锁 [TW/HK]' };
+        return { name: '动画疯', state: 'yes', text: '已解锁 [TW]' };
       }
-      return { name: '动画疯', state: 'muted', text: '仅限台湾/港澳节点' };
+      return { name: '动画疯', state: 'muted', text: '未解锁' };
     } catch (_) {
-      return { name: '动画疯', state: 'muted', text: '仅限台湾/港澳节点' };
+      return { name: '动画疯', state: 'muted', text: '未解锁' };
     }
   }
 
@@ -1790,7 +2321,7 @@
     const startedAt = Date.now();
     const runMode = normalizeMode(mode);
 
-    // 模式 A: 节点链路与入口查询
+    // 模式 A: 节点链路查询
     if (runMode === 'info' || runMode === 'panel') {
       const bgpTTL = runMode === 'panel' ? CACHE_TTL_BG_MS : CACHE_TTL_FG_MS;
       const landingWithBGP = queryLandingIPv4(targetNode).then(async (landing) => {
@@ -1813,18 +2344,18 @@
       };
     }
 
-    // 模式 B: 节点纯净度深度检测（四源交叉核验：ipapi.is + my.ippure.com + proxycheck.io + ip-score RBL + RIPE BGP）
+    // 模式 B: 节点纯净度检测（移除重复 BGP 查询，单接口超时收敛 <=5s，双ISP主备互补并发执行）
     if (runMode === 'purity') {
       const landing = await queryLandingIPv4(targetNode);
-      const [purity, ipPure, proxyCheck, ipScore, bgp] = await runWithConcurrency(
+      const subTimeout = Math.min(CFG.timeoutMs, 5000);
+      const [purity, ipPure, proxyCheck, ipScore] = await runWithConcurrency(
         [
-          () => queryPurityIPAPI(landing.ip, targetNode, 0, 0),
+          () => queryPurityWithFallback(landing.ip, targetNode, subTimeout, 0),
           () => queryIPPure(targetNode),
           () => queryProxyCheckIO(landing.ip, targetNode),
           () => queryIPScoreDeep(targetNode),
-          () => queryBGPUpstreams(landing.ip, targetNode, CACHE_TTL_FG_MS).catch(() => null),
         ],
-        3
+        4
       );
       return {
         ok: true,
@@ -1835,11 +2366,10 @@
         ipPure,
         proxyCheck,
         ipScore,
-        bgp,
       };
     }
 
-    // 模式 C: 流媒体与 AI 解锁检测
+    // 模式 C: 流媒体与解锁检测
     if (runMode === 'unlock') {
       const landing = await queryLandingIPv4(targetNode).catch(() => ({
         ip: '',
@@ -2463,12 +2993,14 @@
     }
 
     const isCN = finalCC === 'CN';
-    const country = isCN ? '中国' : toStr((intlRes && intlRes.country) || finalCC, '');
+    const country = isCN
+      ? '中国'
+      : toStr(COUNTRY_CODE_ZH_MAP[finalCC] || (intlRes && intlRes.country) || finalCC, '');
     const region = isCN
-      ? toStr((cnRes && cnRes.region) || cleanCNPlaceName(intlRes && intlRes.region), '')
+      ? toStr((cnRes && cnRes.region) || normalizeCNPlace(intlRes && intlRes.region), '')
       : toStr(intlRes && intlRes.region, '');
     const city = isCN
-      ? toStr((cnRes && cnRes.city) || cleanCNPlaceName(intlRes && intlRes.city), '')
+      ? toStr((cnRes && cnRes.city) || normalizeCNPlace(intlRes && intlRes.city), '')
       : toStr(intlRes && intlRes.city, '');
     const asn = toStr((intlRes && intlRes.asn) || (cnRes && cnRes.asn) || mmdb.asn, '').toUpperCase();
     const rawISP = isCN
@@ -2988,12 +3520,30 @@
   }
 
   function formatCNEntranceActor(eg, fallbackProvider) {
-    const place = eg
-      ? deduplicateGeoParts([cleanCNPlaceName(eg.region), cleanCNPlaceName(eg.city)]).join('')
-      : '';
+    const place = eg ? formatCompactLocation(eg) : '';
     const rawDisp = eg && (eg.ispDisplay || eg.isp || eg.org) ? String(eg.ispDisplay || eg.isp || eg.org) : '';
     const provider = (rawDisp ? rawDisp.replace(/^中国/, '').trim() : '') || fallbackProvider || '';
+    if (place && provider && (!hasCJK(place) || !hasCJK(provider))) {
+      return place + ' ' + provider;
+    }
     return [place, provider].filter(Boolean).join('');
+  }
+
+  function formatEntranceSummary(eg) {
+    if (!eg || typeof eg !== 'object') return '';
+    if (eg.isPrivate) return '局域网网关';
+    const cc = toStr(eg.countryCode, '').toUpperCase();
+    const loc = formatCompactLocation(eg);
+    const rawBrand = eg.ispDisplay
+      ? eg.ispDisplay.replace(/^中国/, '').trim()
+      : simplifyISPName(eg.isp, eg.org, cc);
+    let geoIsp = loc;
+    if (rawBrand) {
+      if (!loc) geoIsp = rawBrand;
+      else if (cc === 'CN' && hasCJK(loc) && hasCJK(rawBrand)) geoIsp = loc + rawBrand;
+      else geoIsp = loc + ' ' + rawBrand;
+    }
+    return [geoIsp, eg.asn].filter(Boolean).join(' ');
   }
 
   /**
@@ -3034,16 +3584,16 @@
     if (hasNodeLibraryChain) {
       return {
         code: 'chain-library',
-        badge: '客户端链式代理' + warpSuffix,
-        detail: '客户端节点库双跳串联 ➔ 远端落地',
+        badge: '链式代理' + warpSuffix,
+        detail: '客户端节点库双跳串联',
         color: COLORS.purple,
       };
     }
     if (dialerProxy && dialerProxy.toUpperCase() !== 'DIRECT') {
       return {
         code: 'chain-dialer',
-        badge: '客户端链式代理' + warpSuffix,
-        detail: '经客户端前置「' + dialerProxy + '」串联 ➔ 远端落地',
+        badge: '链式代理' + warpSuffix,
+        detail: '经前置「' + dialerProxy + '」串联',
         color: COLORS.purple,
       };
     }
@@ -3051,16 +3601,16 @@
       const chainDesc = toStr(entrance && entrance.proxyChainDesc, '');
       return {
         code: 'chain-loon',
-        badge: '客户端链式代理' + warpSuffix,
-        detail: (chainDesc ? '经前置代理链「' + chainDesc + '」串联' : '客户端前置代理链串联') + ' ➔ 远端落地',
+        badge: '链式代理' + warpSuffix,
+        detail: chainDesc ? '经前置「' + chainDesc + '」串联' : '客户端前置代理链串联',
         color: COLORS.purple,
       };
     }
     if (isRelayGroup) {
       return {
         code: 'chain-relay',
-        badge: '客户端链式代理' + warpSuffix,
-        detail: '客户端 Relay 多跳串联 ➔ 远端落地',
+        badge: '链式代理' + warpSuffix,
+        detail: '客户端 Relay 多跳串联',
         color: COLORS.purple,
       };
     }
@@ -3088,8 +3638,8 @@
       if (isPrivateEnt) {
         return {
           code: 'lan-gateway',
-          badge: '局域网 / 组网网关中转' + warpSuffix,
-          detail: '内网或异地组网网关接入 ➔ 远端落地',
+          badge: '局域网网关中转' + warpSuffix,
+          detail: '内网或组网网关接入',
           color: COLORS.purple,
         };
       }
@@ -3099,15 +3649,15 @@
         if (warpMode) {
           return {
             code: 'direct-warp',
-            badge: '单跳直连 + ' + warpMode + ' 出站',
-            detail: '入口即落地服务器，未经过任何中转节点（出站经 CF 托管）',
+            badge: '单跳直连 + ' + warpMode,
+            detail: '入口即落地服务器',
             color: COLORS.cyan,
           };
         }
         return {
           code: 'direct',
-          badge: landingCC && landingCC !== 'CN' ? '单跳直连出境' : '单跳直连线路',
-          detail: '入口即落地服务器，未经过任何中转节点',
+          badge: '单跳直连',
+          detail: '入口即落地服务器',
           color: COLORS.cyan,
         };
       }
@@ -3118,14 +3668,14 @@
           return {
             code: 'cf-warp-tunnel',
             badge: 'Cloudflare ' + (warpMode || 'WARP') + ' 隧道',
-            detail: 'CF Anycast 边缘接入 ➔ 托管出站',
+            detail: 'CF 边缘接入',
             color: COLORS.cyan,
           };
         }
         return {
           code: 'cf-cdn-origin',
-          badge: 'Cloudflare CDN 边缘反代',
-          detail: 'CF Anycast 边缘接入 ➔ 源站落地',
+          badge: 'Cloudflare CDN 反代',
+          detail: 'CF 边缘反代回源',
           color: COLORS.primary,
         };
       }
@@ -3140,8 +3690,8 @@
           const actor = formatCNEntranceActor(eg, '');
           return {
             code: 'cn-cloud-ga',
-            badge: '云全球加速专网中转 (GA/AGA)' + warpSuffix,
-            detail: (actor ? actor + '全球加速入口' : '云厂商全球加速入口') + ' ➔ 专网跨境落地',
+            badge: '云全球加速中转' + warpSuffix,
+            detail: (actor || '云全球加速') + '入口',
             color: COLORS.purple,
           };
         }
@@ -3151,8 +3701,8 @@
           const actor = formatCNEntranceActor(eg, sameCloud.name);
           return {
             code: 'cn-same-cloud',
-            badge: '同云架构跨境中转' + warpSuffix,
-            detail: (actor ? actor + '入口' : sameCloud.name + '境内入口') + ' ➔ 同集团海外落地',
+            badge: '同云跨境中转' + warpSuffix,
+            detail: (actor || sameCloud.name) + '入口',
             color: COLORS.purple,
           };
         }
@@ -3162,8 +3712,8 @@
           const actor = formatCNEntranceActor(eg, bgpCloudName);
           return {
             code: 'cn-bgp-cloud',
-            badge: '国内多线 BGP 云入口中转' + warpSuffix,
-            detail: (actor ? actor + '多线入口' : bgpCloudName + '多线入口') + ' ➔ 海外落地',
+            badge: '国内 BGP 云中转' + warpSuffix,
+            detail: (actor || bgpCloudName) + '入口',
             color: COLORS.purple,
           };
         }
@@ -3171,8 +3721,8 @@
         const ispActor = formatCNEntranceActor(eg, '');
         return {
           code: 'cn-isp-transit',
-          badge: '国内运营商入口中转' + warpSuffix,
-          detail: (ispActor ? ispActor + '入口' : '国内运营商入口') + ' ➔ 海外落地',
+          badge: '国内运营商中转' + warpSuffix,
+          detail: (ispActor || '国内运营商') + '入口',
           color: COLORS.purple,
         };
       }
@@ -3181,13 +3731,13 @@
       if (entCC === 'CN' && landingCC === 'CN') {
         return {
           code: 'cn-internal-transit',
-          badge: '境内内陆中转链路',
-          detail: '国内前置入口 ➔ 国内异地出口',
+          badge: '境内内陆中转',
+          detail: '国内入口至国内异地出口',
           color: COLORS.purple,
         };
       }
 
-      // 第 7 类：海外入口分离拓扑（修复原分支顺序 Bug：交叉校验 cfTrace.colo 所在国区分跨国跳板套 WARP）
+      // 第 7 类：海外入口分离拓扑（交叉校验 cfTrace.colo 所在国区分跨国跳板套 WARP）
       if (entCC && entCC !== 'CN') {
         if (warpMode || isLandingCF) {
           const coloUpper = toStr(cf && cf.colo, '').toUpperCase();
@@ -3198,15 +3748,15 @@
           if (isCrossCountryBeforeWarp) {
             return {
               code: 'intl-transit-warp',
-              badge: '海外跨国跳板 + ' + (warpMode || 'WARP') + ' 出站',
-              detail: entCC + ' 前置跳板 ➔ ' + landingCC + ' 托管出站',
+              badge: '海外跳板 + ' + (warpMode || 'WARP'),
+              detail: entCC + ' 跳板至 ' + landingCC,
               color: COLORS.purple,
             };
           }
           return {
             code: 'overseas-direct-warp',
-            badge: '海外入口 + ' + (warpMode || 'WARP') + ' 出站',
-            detail: entCC + ' 入口接入 ➔ Cloudflare 托管出站',
+            badge: '海外入口 + ' + (warpMode || 'WARP'),
+            detail: entCC + ' 入口经 WARP 出站',
             color: COLORS.cyan,
           };
         }
@@ -3214,8 +3764,8 @@
         if (landingCC && entCC !== landingCC) {
           return {
             code: 'intl-transit',
-            badge: '海外跨国跳板中转',
-            detail: entCC + ' 前置跳板 ➔ ' + landingCC + ' 远端落地',
+            badge: '海外跨国中转',
+            detail: entCC + ' 跳板至 ' + landingCC,
             color: COLORS.purple,
           };
         }
@@ -3223,16 +3773,16 @@
         if (entASN && landingASN && entASN === landingASN) {
           return {
             code: 'same-asn-multi-ip',
-            badge: '海外同网段多 IP 出站',
-            detail: '出入口同属 ' + landingASN + ' (' + entCC + ')',
+            badge: '同网段多 IP 出站',
+            detail: '出入口同属 ' + landingASN,
             color: COLORS.cyan,
           };
         }
 
         return {
           code: 'same-region-chain',
-          badge: '海外同区异网落地链',
-          detail: entCC + ' 前置入口 ➔ 同区独立网络落地',
+          badge: '海外同区中转',
+          detail: entCC + ' 同区独立网络落地',
           color: COLORS.purple,
         };
       }
@@ -3240,18 +3790,18 @@
       // 第 8 类：入口与落地不同 IP 但入口 Geo 超时兜底
       return {
         code: 'separated-transit',
-        badge: '分离式中转链路' + warpSuffix,
-        detail: '拨号入口与最终落地 IP 分离',
+        badge: '分离式中转' + warpSuffix,
+        detail: '入口与落地 IP 分离',
         color: COLORS.purple,
       };
     }
 
-    // 第 9 类：未捕获入口诚实兜底（严格区分宿主：仅在 Clash-Client/Stash 提示控制器，Loon/其他端诚实显示仅测得落地出站）
+    // 第 9 类：未捕获入口诚实兜底（严格区分宿主：仅在 Clash-Client/Stash 提示控制器）
     if (!CFG.showEntrance) {
       return {
         code: 'outbound-only',
-        badge: '仅测得落地出站',
-        detail: '已在设置中关闭入口检测',
+        badge: '仅测得落地',
+        detail: '已关闭入口检测',
         color: COLORS.primary,
       };
     }
@@ -3260,54 +3810,54 @@
       if (warpMode) {
         return {
           code: 'warp-outbound',
-          badge: 'Cloudflare ' + warpMode + ' 托管出站',
-          detail: '开启外部控制器并填密钥可判别前端入口',
+          badge: warpMode + ' 托管出站',
+          detail: '开启外部控制器可识别前端入口',
           color: COLORS.purple,
         };
       }
       if (isLandingCF) {
         return {
           code: 'cf-outbound',
-          badge: 'Cloudflare Anycast 出站',
-          detail: '开启外部控制器并填密钥可判别前端入口',
+          badge: 'Cloudflare 出站',
+          detail: '开启外部控制器可识别前端入口',
           color: COLORS.cyan,
         };
       }
       if (entrance && entrance.status === 'unauthorized') {
         return {
           code: 'pending-secret',
-          badge: '仅测得落地出站 (待填密钥)',
-          detail: '填入外部控制器密钥即可捕获入口',
+          badge: '仅测得落地 (待填密钥)',
+          detail: '填入外部控制器密钥即可识别入口',
           color: COLORS.warning,
         };
       }
       if (entrance && entrance.status === 'unreachable') {
         return {
           code: 'pending-controller',
-          badge: '仅测得落地出站 (未开控制器)',
-          detail: '开启「外部控制器 → 本机」填密钥可判别入口',
+          badge: '仅测得落地 (未开控制器)',
+          detail: '开启外部控制器可识别入口',
           color: COLORS.muted,
         };
       }
       return {
         code: 'pending-sample',
-        badge: '仅测得落地出站',
-        detail: '本次连接采样过快结束，重测即可捕获入口',
+        badge: '仅测得落地',
+        detail: '重测可捕获入口',
         color: COLORS.muted,
       };
     }
 
     return {
       code: warpMode ? 'warp-outbound' : isLandingCF ? 'cf-outbound' : 'outbound-only',
-      badge: warpMode ? '仅测得落地出站 (' + warpMode + ')' : '仅测得落地出站',
-      detail: '长按具体节点运行可自动解析入口链路',
+      badge: warpMode ? '仅测得落地 (' + warpMode + ')' : '仅测得落地',
+      detail: '长按具体节点运行可解析入口',
       color: warpMode ? COLORS.purple : COLORS.primary,
     };
   }
 
   /**
    * 独立「名称宣称验伪提示」审计器 —— 只验伪、绝不正向加分！
-   * 仅当客观探测铁证 100% 证伪节点名宣称时返回一行警示文案，否则返回 null。
+   * 仅当客观探测铁证 100% 证伪节点名宣称时返回一句自然客观提示，否则返回 null。
    */
   function detectNameClaimMismatch(nodeName, facts) {
     const name = toStr(nodeName, '');
@@ -3353,38 +3903,37 @@
         /cloudflare/i.test(toStr(eg && (eg.ispDisplay || eg.org), '') + ' ' + entHost)
     );
 
-    // 规则 1：名称标称中转/专线，实测出入口同 IP（纯单跳直连）
+    // 规则 1：节点名含专线/中转，实测出入口为同一 IP
     if (!hasClientChain && /iepl|iplc|专线|内网专线|中转/i.test(name) && isSameIP) {
-      return '名称标称中转/专线，实测出入口同 IP（纯单跳直连）';
+      return '节点名含专线/中转，实测出入口为同一 IP';
     }
 
-    // 规则 2：名称标称专线/跨境口岸，实测入口为 AS13335 Cloudflare 公共 Anycast
+    // 规则 2：节点名含专线/跨境口岸，实测入口为 Cloudflare 公共边缘
     if (/iepl|iplc|专线|内网专线|深港|广港|沪日|沪美|京德|京日|苏日/i.test(name) && isEntCF) {
-      return '名称标称专线，实测为 Cloudflare Anycast 公共边缘接入';
+      return '节点名含专线，实测入口为 Cloudflare 公共边缘';
     }
 
-    // 规则 3：名称标称境内跨境专线，实测首跳直连境外（无境内入口）
+    // 规则 3：节点名含境内跨境专线，实测首跳直连境外（无境内入口）
     if (
       !hasClientChain &&
       /iepl|iplc|内网专线|深港|广港|沪日|沪美|京德|京日|苏日/i.test(name) &&
       Boolean(entCC) &&
       entCC !== 'CN'
     ) {
-      return '名称标称境内跨境专线，实测首跳直连境外 (' + entCC + ')，无境内入口';
+      const ccZh = COUNTRY_CODE_ZH_MAP[entCC] || entCC;
+      return '节点名含境内专线，实测首跳直连境外 (' + ccZh + ')';
     }
 
     return null;
   }
 
-  /**
-   * 双轴 BGP 标签解耦：
-   * - 单跳直连出境 -> 「跨境骨干」（公网 BGP 直接决定跨境去回程质量）
-   * - 国内中转 / 海外跳板 / 分离链路 -> 「落地互联」（明确代表落地机国际/回程互联，而非中转去程物理介质）
-   */
   function resolveBGPRoleLabel(linkCode) {
     return linkCode === 'direct' || linkCode === 'direct-warp' ? '跨境骨干' : '落地互联';
   }
 
+  /**
+   * 单行简洁路径条：仅包含真实网络跳点，去除末尾多余的 ☁️ POP 代码，仅当开启 WARP 时在末尾追加 WARP
+   */
   function buildTopologyHops({ domestic, entrance, probe }) {
     const l = (probe && probe.landing) || {};
     const cf = (probe && probe.cfTrace) || null;
@@ -3393,13 +3942,13 @@
     const plainHops = [];
 
     if (domestic && domestic.ip) {
-      const dLabel = '🇨🇳 ' + (domestic.shortTag || '本地');
+      const dLabel = '🇨🇳 ' + (domestic.shortTag || domestic.location || '本地');
       htmlHops.push(esc(dLabel));
       plainHops.push(dLabel);
     }
 
     if (entrance && entrance.hasProxyChain && entrance.proxyChainDesc) {
-      const lcTag = '🔗 ' + entrance.proxyChainDesc;
+      const lcTag = entrance.proxyChainDesc;
       htmlHops.push(colorSpan(lcTag, COLORS.purple, true));
       plainHops.push(lcTag);
     }
@@ -3409,11 +3958,7 @@
       const isDirect =
         Boolean(entIP) &&
         (entIP === l.ip || Boolean(probe && probe.ipv6 && probe.ipv6.ip && entIP === probe.ipv6.ip));
-      if (isDirect) {
-        const dTxt = String(l.countryCode || '').toUpperCase() === 'CN' ? '单跳直连' : '直连出境';
-        htmlHops.push(colorSpan(dTxt, COLORS.cyan, true));
-        plainHops.push(dTxt);
-      } else {
+      if (!isDirect) {
         const eg = entrance.geo;
         const entASN = String((eg && eg.asn) || '').toUpperCase();
         const isEntCF =
@@ -3423,44 +3968,49 @@
         let eTag = '中转入口';
         let eColor = COLORS.purple;
         if ((eg && eg.isPrivate) || (entIP && isPrivateLANIP(entIP))) {
-          eTag = '🏠 组网网关';
+          eTag = '局域网网关';
         } else if (isEntCF) {
-          eTag = '☁️ CF 边缘入口';
+          eTag = '☁️ CF 边缘';
           eColor = COLORS.primary;
         } else if (eg) {
-          const place = cleanCNPlaceName(eg.city || eg.region || eg.country || '入口');
-          const shortISP = eg.ispDisplay ? eg.ispDisplay.replace(/^中国/, '').trim() : '';
-          const sep =
-            shortISP && (/[a-zA-Z]/.test(place) || /[a-zA-Z]/.test(shortISP) || shortISP.length > 2) ? ' ' : '';
-          eTag = getFlagEmoji(eg.countryCode) + ' ' + place + (shortISP ? sep + shortISP : '');
+          const hopPlace = formatCompactLocation(eg, { shortHop: true }) || '入口';
+          const shortISP = eg.ispDisplay
+            ? eg.ispDisplay.replace(/^中国/, '').trim()
+            : simplifyISPName(eg.isp, eg.org, eg.countryCode);
+          const sep = shortISP && (!hasCJK(hopPlace) || !hasCJK(shortISP)) ? ' ' : '';
+          eTag = getFlagEmoji(eg.countryCode) + ' ' + hopPlace + (shortISP ? sep + shortISP : '');
         }
         htmlHops.push(colorSpan(eTag, eColor, true));
         plainHops.push(eTag);
       }
     } else if (entrance && entrance.dialerProxy && !entrance.dialerProxy.startsWith('__clash_chain_entry_')) {
-      const dpTag = '🔗 ' + entrance.dialerProxy;
+      const dpTag = entrance.dialerProxy;
       htmlHops.push(colorSpan(dpTag, COLORS.purple, true));
       plainHops.push(dpTag);
     }
 
-    const landTag = flag + ' ' + (l.city || l.country || l.countryCode || '落地');
-    htmlHops.push(esc(landTag));
-    plainHops.push(landTag);
+    if (l.ip || l.countryCode || l.country) {
+      const landPlace = formatCompactLocation(l, { shortHop: true }) || l.countryCode || '落地';
+      const landTag = flag + ' ' + landPlace;
+      htmlHops.push(esc(landTag));
+      plainHops.push(landTag);
+    }
 
-    if (cf && cf.colo) {
-      const cfTag = '☁️ ' + cf.colo;
-      htmlHops.push(esc(cfTag));
-      plainHops.push(cfTag);
+    if (cf && (cf.warp === 'on' || cf.warp === 'plus')) {
+      const wTag = cf.warp === 'plus' ? 'WARP+' : 'WARP';
+      htmlHops.push(colorSpan(wTag, COLORS.purple, true));
+      plainHops.push(wTag);
     }
 
     return {
       html: htmlHops.join(' ➔ '),
       plain: plainHops.join(' ➔ '),
+      hopCount: plainHops.length,
     };
   }
 
   // ============================================================================
-  // 9. 三大独立弹窗渲染器（深浅色模式自适应排版、零硬编码底色/主文字色）
+  // 9. 极简一屏弹窗渲染器（Apple 原生信息面板风格、深浅色自适应、零重复、零底部废话）
   // ============================================================================
 
   function levelColor(level) {
@@ -3471,88 +4021,45 @@
     return COLORS.primary;
   }
 
-  function renderCompactHeader(nodeName, nodeInfo, leafNode) {
-    const meta = [];
-    if (nodeInfo && typeof nodeInfo === 'object') {
-      if (nodeInfo.type) meta.push('<code>' + esc(String(nodeInfo.type).toUpperCase()) + '</code>');
-      if (nodeInfo.tls === 1 || nodeInfo.tls === true) {
-        meta.push(colorSpan('TLS ✓', COLORS.success, true));
-      }
-      if (typeof nodeInfo.udp === 'boolean') {
-        meta.push(nodeInfo.udp ? colorSpan('UDP ✓', COLORS.success, true) : colorSpan('UDP ✗', COLORS.muted, false));
-      }
-      const hist = Array.isArray(nodeInfo.history) ? nodeInfo.history : [];
-      const delay = hist.length > 0 ? Number(hist[hist.length - 1].delay || 0) : 0;
-      if (delay > 0) {
-        const dc = delay < 160 ? COLORS.success : delay < 350 ? COLORS.warning : COLORS.danger;
-        meta.push(colorSpan(delay + ' ms', dc, true));
-      } else if (nodeInfo.alive === false) {
-        meta.push(colorSpan('离线', COLORS.danger, true));
-      }
-    }
-    const displayTitle = nodeName || '当前默认出口';
-    const lines = [
-      colorSpan('● ', COLORS.primary, true) +
-        '<b>' +
-        esc(displayTitle) +
-        '</b>' +
-        (meta.length > 0 ? '  ' + meta.join(' · ') : ''),
-    ];
-    if (leafNode && leafNode !== displayTitle) {
-      lines.push('实际承载：' + colorSpan(leafNode, COLORS.cyan, true));
-    }
-    return lines;
-  }
-
-  function renderFooterNote(probe) {
-    let ch = '⚡ 原生直走隧道 · ' + probe.elapsedMs + ' ms';
-    if (probe.routeChannel === 'bridge') {
-      ch = '⚡ 零切换直测 · ' + probe.elapsedMs + ' ms';
-    } else if (probe.routeChannel === 'active-default') {
-      ch = '⚡ 当前默认出口直测 · ' + probe.elapsedMs + ' ms';
-    } else if (probe.routeChannel === 'active-global' || probe.routeChannel === 'active-rule') {
-      ch = '⚡ 当前节点直测 · ' + probe.elapsedMs + ' ms';
-    } else if (probe.routeChannel === 'config-fallback') {
-      ch = '🔄 临时切换直测 (已还原) · ' + probe.elapsedMs + ' ms';
-    }
-    return '<span style="color:' + COLORS.muted + '">' + esc(ch) + '</span>';
-  }
-
   /**
-   * 视图 1：🌐 节点链路与入口查询
+   * 视图 1：节点链路查询 (MODE=info) —— 严格控制在 7~9 行内，iPhone 一屏完整呈现
    */
   function renderInfoSheetHTML({ nodeName, nodeInfo, domestic, entrance, probe, hostClient }) {
     const activeHost = hostClient || HOST_CLIENT;
-    const l = probe.landing;
-    const cf = probe.cfTrace;
-    const flag = getFlagEmoji(l.countryCode);
-    const lGeo = deduplicateGeoParts([l.country, l.region, l.city]).join(' ');
-    const lines = renderCompactHeader(nodeName, nodeInfo, entrance && entrance.leafNode);
+    const l = probe.landing || {};
+    const cf = probe.cfTrace || null;
+    const displayTitle = nodeName || '当前出口';
+    const leafNode = entrance && entrance.leafNode ? String(entrance.leafNode).trim() : '';
 
     const linkInfo = classifyLinkType({ nodeInfo, entrance, probe, hostClient: activeHost });
     const claimWarning = detectNameClaimMismatch(nodeName, { entrance, probe, linkInfo });
     const topo = buildTopologyHops({ domestic, entrance, probe });
 
-    lines.push('');
-    lines.push('<b>▸ 代理链路与走向</b>');
-    lines.push(
-      '链路类型：' +
-        colorSpan(linkInfo.badge, linkInfo.color, true) +
-        (linkInfo.detail ? ' <span style="color:' + COLORS.muted + '">(' + esc(linkInfo.detail) + ')</span>' : '')
-    );
-    if (claimWarning) {
-      lines.push('名称核验：' + colorSpan('⚠️ ' + claimWarning, COLORS.warning, true));
-    }
-    lines.push('链路走向：' + topo.html);
+    const proto = formatProtocolName((nodeInfo && nodeInfo.type) || (entrance && entrance.proxyType));
+    const subParts = [];
+    if (leafNode && leafNode !== displayTitle) subParts.push(esc(leafNode));
+    if (proto) subParts.push(esc(proto));
+    subParts.push(colorSpan(linkInfo.badge, linkInfo.color, true));
 
-    lines.push('');
-    lines.push('<b>▸ 入口与落地明细</b>');
+    const topLines = [
+      '<b>' + esc(displayTitle) + '</b>',
+      '<span style="font-size:12.5px;color:' + COLORS.muted + '">' + subParts.join(' · ') + '</span>',
+    ];
+    if (topo.hopCount >= 2) {
+      topLines.push('<span style="font-size:12.5px">' + topo.html + '</span>');
+    }
+
+    const detailRows = [];
+
     if (domestic && domestic.ip) {
-      lines.push(
-        '本地直连：<code>' +
-          esc(maskIPString(domestic.ip, CFG.maskIP)) +
-          '</code> · ' +
-          esc([domestic.location, domestic.isp].filter(Boolean).join(' '))
+      const domDesc =
+        domestic.fullTag ||
+        [domestic.location, (domestic.isp || '').replace(/^中国/, '')].filter(Boolean).join('');
+      detailRows.push(
+        renderKVRow(
+          '直连',
+          esc(maskIPString(domestic.ip, CFG.maskIP)) + (domDesc ? ' · ' + esc(domDesc) : '')
+        )
       );
     }
 
@@ -3563,174 +4070,181 @@
         const isDirect =
           Boolean(entIP) &&
           (entIP === l.ip || Boolean(probe.ipv6 && probe.ipv6.ip && entIP === probe.ipv6.ip));
-        const portStr = !CFG.maskIP && entrance.entrancePort ? ':' + entrance.entrancePort : '';
-        if (isDirect) {
-          if (entHost && entHost !== entIP) {
-            lines.push('接入域名：<code>' + esc(maskDomainString(entHost, CFG.maskIP)) + '</code>');
-          }
-        } else {
-          const eg = entrance.geo;
-          const regCityParts = eg ? deduplicateGeoParts([eg.region || eg.country, eg.city]) : [];
-          const regCitySep = regCityParts.some((p) => /[a-zA-Z]/.test(p)) ? ' ' : '';
-          const eGeo = eg
-            ? [
-                eg.isPrivate ? '🏠' : getFlagEmoji(eg.countryCode),
-                regCityParts.join(regCitySep),
-                eg.ispDisplay || eg.isp || eg.org,
-              ]
-                .filter(Boolean)
-                .join(' ')
-            : '';
-          const nonTransitCodes = new Set(['overseas-direct-warp', 'same-asn-multi-ip', 'cf-warp-tunnel']);
-          const entLabel = nonTransitCodes.has(linkInfo.code) ? '拨号入口' : '中转入口';
-          const entASNHtml = eg && eg.asn ? ' <code>[' + esc(eg.asn) + ']</code>' : '';
-          lines.push(
-            entLabel +
-              '：<code>' +
-              esc(maskIPString(entIP || entHost, CFG.maskIP) + portStr) +
-              '</code>' +
-              (eGeo ? ' · ' + esc(eGeo) : '') +
-              entASNHtml
+        if (!isDirect) {
+          const entSummary = formatEntranceSummary(entrance.geo);
+          const gaSuffix =
+            linkInfo.code === 'cn-cloud-ga' ? ' ' + colorSpan('[GA加速]', COLORS.purple, true) : '';
+          detailRows.push(
+            renderKVRow(
+              '入口',
+              esc(maskIPString(entIP || entHost, CFG.maskIP)) +
+                (entSummary ? ' · ' + esc(entSummary) : '') +
+                gaSuffix
+            )
           );
-          if (entHost && entHost !== entIP) {
-            lines.push('入口域名：<code>' + esc(maskDomainString(entHost, CFG.maskIP)) + '</code>');
-          }
-          if (
-            linkInfo.code === 'cn-cloud-ga' &&
-            Array.isArray(entrance.cnameChain) &&
-            entrance.cnameChain.length > 0
-          ) {
-            const gaCname = entrance.cnameChain[entrance.cnameChain.length - 1];
-            lines.push('专网调度：<code>' + esc(maskDomainString(gaCname, CFG.maskIP)) + '</code>');
-          }
         }
       } else if (activeHost === 'clash' || activeHost === 'stash') {
         if (entrance.status === 'unauthorized') {
-          lines.push('中转入口：' + colorSpan('待填外部控制器密钥', COLORS.warning, false));
+          detailRows.push(renderKVRow('入口', colorSpan('待填外部控制器密钥', COLORS.warning, false)));
         } else if (entrance.status === 'unreachable') {
-          lines.push(
-            '中转入口：<span style="color:' +
-              COLORS.muted +
-              '">未开启（设置→客户端设置→外部控制器→本机）</span>'
-          );
-        } else if (entrance.status === 'not_found') {
-          lines.push(
-            '中转入口：<span style="color:' + COLORS.muted + '">连接已释放（重测即可捕获）</span>'
+          detailRows.push(
+            renderKVRow('入口', '<span style="color:' + COLORS.muted + '">未开启外部控制器</span>')
           );
         }
       }
     }
 
-    lines.push(
-      '落地出口：<code>' +
-        esc(maskIPString(l.ip, CFG.maskIP)) +
-        '</code> · ' +
-        flag +
-        ' ' +
-        esc(lGeo || l.countryCode || '-')
-    );
-    if (probe.ipv6 && probe.ipv6.ip) {
-      lines.push(
-        '落地 IPv6：<code>' +
-          esc(maskIPString(probe.ipv6.ip, CFG.maskIP)) +
-          '</code> ' +
-          colorSpan('[双栈 ✓]', COLORS.success, true)
-      );
-    }
+    const landLoc = formatCompactLocation(l) || l.countryCode || '-';
+    const landISP = simplifyISPName(l.isp, l.org, l.countryCode);
+    const landProvider = [landISP, l.asn].filter(Boolean).join(' ');
+    const landSegs = [esc(maskIPString(l.ip, CFG.maskIP)), esc(landLoc)];
+    if (landProvider) landSegs.push(esc(landProvider));
+    detailRows.push(renderKVRow('落地', landSegs.join(' · ')));
 
-    lines.push(
-      '运营商　：' +
-        (l.asn ? '<code>' + esc(l.asn) + '</code> ' : '') +
-        esc(l.isp || l.org || '未知')
-    );
-
-    if (cf) {
-      const coloDesc = cf.colo ? (cf.coloCity ? cf.colo + ' · ' + cf.coloCity : cf.colo) : '';
-      const warpTag =
-        cf.warp === 'plus'
-          ? colorSpan('[WARP+ 托管]', COLORS.purple, true)
-          : cf.warp === 'on'
-            ? colorSpan('[WARP 出站]', COLORS.warning, true)
-            : colorSpan('[原生直出]', COLORS.success, false);
-      lines.push(
-        'CF 边缘 ：' + (coloDesc ? '<code>' + esc(coloDesc) + '</code> ' : '') + warpTag
-      );
-    }
-
-    // 双轴 BGP 评级解耦：单跳直连显示「跨境骨干」，中转/跳板显示「落地互联」
     const bgp = probe.bgp;
     if (bgp) {
-      const bgpRole = resolveBGPRoleLabel(linkInfo.code);
-      lines.push('');
-      lines.push('<b>▸ BGP 路由与上游骨干</b>');
-      const diffOrigin =
-        bgp.originASN && l.asn && bgp.originASN.toUpperCase() !== String(l.asn).toUpperCase()
-          ? ' · 宣告 <code>' + esc(bgp.originASN) + '</code>'
-          : '';
-      lines.push(
-        bgpRole +
-          '：' +
-          colorSpan(bgp.gradeLabel, levelColor(bgp.gradeLevel), true) +
-          (bgp.prefix ? ' · <code>' + esc(bgp.prefix) + '</code>' : '') +
-          diffOrigin
-      );
-      if (bgp.aggregator && bgp.aggregator.asn) {
-        lines.push(
-          '聚合网关：' +
-            (bgp.aggregator.name ? esc(bgp.aggregator.name) + ' ' : '') +
-            '<code>[' +
-            esc(bgp.aggregator.asn) +
-            ']</code>'
+      const bgpText = bgp.compactText || formatBGPCompactSummary(bgp);
+      if (bgpText) {
+        detailRows.push(
+          renderKVRow(
+            '线路',
+            colorSpan(bgpText, levelColor(bgp.gradeLevel), bgp.gradeLevel === 'excellent')
+          )
         );
-      }
-      if (bgp.upstreams && bgp.upstreams.length > 0) {
-        const upHtml = bgp.upstreams
-          .slice(0, 4)
-          .map((u) => {
-            const namePart = u.name ? esc(u.name) + ' ' : '';
-            return namePart + '<code>[' + esc(u.asn) + ']</code> ' + u.pct + '%';
-          })
-          .join(' · ');
-        lines.push((bgp.aggregator ? '穿透上游：' : '直连上游：') + upHtml);
       }
     }
 
-    lines.push('');
-    lines.push(renderFooterNote(probe));
-    return wrapSheetBodyHTML(lines.join('<br>'));
+    if (CFG.checkIPv6 && probe.ipv6 && probe.ipv6.ip) {
+      detailRows.push(
+        renderKVRow(
+          '双栈',
+          colorSpan('支持 IPv6', COLORS.success, false) +
+            ' <span style="color:' +
+            COLORS.muted +
+            '">(' +
+            esc(formatShortIPv6(probe.ipv6.ip, CFG.maskIP)) +
+            ')</span>'
+        )
+      );
+    }
+
+    if (cf && (cf.warp === 'on' || cf.warp === 'plus')) {
+      const warpLabel = (cf.warp === 'plus' ? 'WARP+ 已启用' : '已启用') + (cf.colo ? ' (' + cf.colo + ')' : '');
+      detailRows.push(renderKVRow('WARP', colorSpan(warpLabel, COLORS.purple, false)));
+    }
+
+    if (claimWarning) {
+      detailRows.push(renderKVRow('提示', colorSpan(claimWarning, COLORS.warning, false)));
+    }
+
+    return wrapSheetBodyHTML(topLines.join('<br>') + SHEET_HR + detailRows.join('<br>'));
   }
 
   /**
-   * 视图 2：🛡️ 节点纯净度深度检测（融合 ipapi.is + my.ippure.com + proxycheck.io + ip-score RBL）
+   * 视图 2：节点纯净度检测 (MODE=purity) —— 严格控制在 6~7 行内，零重复、零「未知」
    */
-  function renderPuritySheetHTML({ nodeName, nodeInfo, probe }) {
-    const l = probe.landing;
-    const p = probe.purity;
-    const ipp = probe.ipPure;
-    const pc = probe.proxyCheck;
-    const sc = probe.ipScore;
-    const flag = getFlagEmoji(l.countryCode || (p && p.countryCode) || (ipp && ipp.countryCode));
-    const lines = renderCompactHeader(nodeName, nodeInfo, '');
+  function renderPuritySheetHTML({ nodeName, probe }) {
+    const l = probe.landing || {};
+    const p = probe.purity || null;
+    const ipp = probe.ipPure || null;
+    const pc = probe.proxyCheck || null;
+    const sc = probe.ipScore || null;
+    const displayTitle = nodeName || '当前出口';
 
-    lines.push(
-      '检测目标：<code>' +
-        esc(maskIPString(l.ip, CFG.maskIP)) +
-        '</code> · ' +
-        flag +
-        ' ' +
-        esc(deduplicateGeoParts([l.country, l.city]).join(' ')) +
-        (l.asn ? ' <code>[' + esc(l.asn) + ']</code>' : '')
-    );
+    const effCC = toStr(
+      l.countryCode || (p && p.countryCode) || (ipp && ipp.countryCode),
+      ''
+    ).toUpperCase();
+    const locStr =
+      formatCompactLocation(l) || COUNTRY_CODE_ZH_MAP[effCC] || effCC || '-';
+    const rawISP =
+      l.isp || l.org || (p && (p.companyName || p.asnOrg)) || (ipp && ipp.asOrganization) || '';
+    const cleanISP = simplifyISPName(rawISP, '', effCC);
+    const asnStr = l.asn || (p && p.asn) || (ipp && ipp.asn) || '';
+    const providerStr = [cleanISP, asnStr].filter(Boolean).join(' ');
+    const subSegs = [esc(maskIPString(l.ip, CFG.maskIP)), esc(locStr)];
+    if (providerStr) subSegs.push(esc(providerStr));
 
-    if (p || ipp) {
-      let combinedRisk = p ? p.riskIndex : ipp && ipp.fraudScore !== null ? ipp.fraudScore : 25;
-      if (p && ipp && ipp.fraudScore !== null && pc && pc.risk !== null) {
+    const topLines = [
+      '<b>' + esc(displayTitle) + '</b>',
+      '<span style="font-size:12.5px;color:' + COLORS.muted + '">' + subSegs.join(' · ') + '</span>',
+    ];
+
+    const detailRows = [];
+    const COL_W = '3.6em';
+
+    if (p || ipp || pc || sc) {
+      // 1. 属性（合并带宽性质 + 原生/广播结论，绝不重复展示）
+      let natureLabel = '';
+      let natureLevel = 'normal';
+      if (p && p.lineageLabel) {
+        natureLabel = p.lineageLabel;
+        natureLevel = p.lineageLevel;
+      } else if (ipp && ipp.isResidential === true) {
+        natureLabel = '住宅宽带';
+        natureLevel = 'good';
+      } else if (pc && pc.typeZh && (pc.type === 'Residential' || pc.type === 'Wireless' || pc.type === 'Business')) {
+        natureLabel = pc.typeZh;
+        natureLevel = 'good';
+      } else if (l.hosting || (pc && pc.type === 'Hosting')) {
+        natureLabel = '机房带宽';
+        natureLevel = 'warn';
+      } else if (ipp && ipp.isResidential === false) {
+        natureLabel = '机房/商业网络';
+        natureLevel = 'warn';
+      } else if (l.mobile) {
+        natureLabel = '移动蜂窝网络';
+        natureLevel = 'good';
+      } else {
+        natureLabel = '常规网络';
+        natureLevel = 'normal';
+      }
+
+      const isNative =
+        p && typeof p.isNativeGeo === 'boolean'
+          ? p.isNativeGeo
+          : ipp && typeof ipp.isBroadcast === 'boolean'
+            ? !ipp.isBroadcast
+            : null;
+      const nativeHtml =
+        isNative === true
+          ? ' · ' + colorSpan('原生 IP', COLORS.success, true)
+          : isNative === false
+            ? ' · ' + colorSpan('广播 IP', COLORS.warning, true)
+            : '';
+      detailRows.push(
+        renderKVRow('属性', colorSpan(natureLabel, levelColor(natureLevel), true) + nativeHtml, COL_W)
+      );
+
+      // 2. 类型（仅当 ipapi.is 或 ipinfo 拿到真实双维类型时展示，未拿到直接省略，严禁显示「未知」）
+      if (p && p.hasDualTypes && p.asnTypeText && p.companyTypeText) {
+        detailRows.push(
+          renderKVRow(
+            '类型',
+            'ASN ' + esc(p.asnTypeText) + ' · 运营 ' + esc(p.companyTypeText),
+            COL_W
+          )
+        );
+      }
+
+      // 3. 评分（合并综合评分与 IPPure 欺诈值，去除方块条与冗余词藻）
+      const hasRichPurity = Boolean(
+        p && (p.hasDualTypes || p.lineageLabel || p.primaryScore || p.riskIndex > 0)
+      );
+      let combinedRisk = hasRichPurity
+        ? p.riskIndex
+        : ipp && ipp.fraudScore !== null
+          ? ipp.fraudScore
+          : pc && pc.risk !== null
+            ? pc.risk
+            : 15;
+      if (hasRichPurity && ipp && ipp.fraudScore !== null && pc && pc.risk !== null) {
         combinedRisk = Math.round(p.riskIndex * 0.5 + ipp.fraudScore * 0.25 + pc.risk * 0.25);
-      } else if (p && ipp && ipp.fraudScore !== null) {
+      } else if (hasRichPurity && ipp && ipp.fraudScore !== null) {
         combinedRisk = Math.round(p.riskIndex * 0.65 + ipp.fraudScore * 0.35);
-      } else if (p && pc && pc.risk !== null) {
+      } else if (hasRichPurity && pc && pc.risk !== null) {
         combinedRisk = Math.round(p.riskIndex * 0.65 + pc.risk * 0.35);
-      } else if (!p && ipp && ipp.fraudScore !== null && pc && pc.risk !== null) {
+      } else if (!hasRichPurity && ipp && ipp.fraudScore !== null && pc && pc.risk !== null) {
         combinedRisk = Math.round(ipp.fraudScore * 0.6 + pc.risk * 0.4);
       }
       if (sc && sc.listedCount > 0) {
@@ -3747,134 +4261,71 @@
               : COLORS.danger;
       const rLabel =
         combinedRisk <= 15
-          ? '极度纯净'
+          ? '纯净'
           : combinedRisk <= 35
-            ? '纯净良好'
+            ? '良好'
             : combinedRisk <= 60
-              ? '轻度风险'
-              : '高危预警';
-
-      lines.push('');
-      lines.push('<b>▸ IP 血统与原生属性</b>');
-      if (p) {
-        lines.push('线路血统：' + colorSpan(p.lineageLabel, levelColor(p.lineageLevel), true));
-        lines.push(
-          '双维类型：ASN <code>' +
-            esc(p.asnTypeText) +
-            '</code> ｜ 运营 <code>' +
-            esc(p.companyTypeText) +
-            '</code>'
-        );
-      } else if (ipp) {
-        const ippLineage =
-          ipp.isResidential === true ? '🏠 住宅宽带网络 (IPPure)' : '🖥️ 机房/商业网络 (IPPure)';
-        lines.push(
-          '线路血统：' + colorSpan(ippLineage, ipp.isResidential ? COLORS.success : COLORS.warning, true)
-        );
-      }
-
-      const broadcastText =
-        (p && p.broadcastText) ||
-        (ipp && ipp.isBroadcast !== null
-          ? ipp.isBroadcast
-            ? '广播 IP (IPPure 核验)'
-            : '原生 IP (IPPure 核验)'
-          : '');
-      const isNativeGeo =
-        p && p.isNativeGeo !== null
-          ? p.isNativeGeo
-          : ipp && ipp.isBroadcast !== null
-            ? !ipp.isBroadcast
-            : null;
-      if (broadcastText) {
-        lines.push(
-          '归属判定：' +
-            colorSpan(broadcastText, isNativeGeo ? COLORS.success : COLORS.warning, Boolean(isNativeGeo))
-        );
-      }
-
-      if (p && (p.companyNetwork || p.asnRoute)) {
-        lines.push(
-          'WHOIS 段：<code>' +
-            esc(p.companyNetwork || p.asnRoute) +
-            '</code>' +
-            (p.rir ? ' · <code>' + esc(p.rir) + '</code>' : '')
-        );
-      }
-      if (probe.bgp) {
-        lines.push(
-          '出口 BGP：' +
-            colorSpan(probe.bgp.gradeLabel, levelColor(probe.bgp.gradeLevel), true) +
-            (probe.bgp.shortNames ? ' · <code>' + esc(probe.bgp.shortNames) + '</code>' : '')
-        );
-      }
-
-      lines.push('');
-      lines.push('<b>▸ 风控与黑名单审计</b>');
-      lines.push(
-        '纯净指数：' +
-          colorSpan(scoreBar(cleanScore) + ' ' + cleanScore + '分 · ' + rLabel, rColor, true)
+              ? '一般'
+              : '高风险';
+      const fraudSuffix =
+        ipp && ipp.fraudScore !== null
+          ? ' <span style="color:' + COLORS.muted + '">· 欺诈值 ' + ipp.fraudScore + '</span>'
+          : '';
+      detailRows.push(
+        renderKVRow(
+          '评分',
+          colorSpan(cleanScore + ' / 100 · ' + rLabel, rColor, true) + fraudSuffix,
+          COL_W
+        )
       );
-      if (ipp && ipp.fraudScore !== null) {
-        const ippTags = ['欺诈值 ' + ipp.fraudScore + '/100'];
-        if (ipp.isResidential !== null) ippTags.push(ipp.isResidential ? '住宅属性' : '非住宅');
-        if (ipp.isBroadcast !== null) ippTags.push(ipp.isBroadcast ? '广播宣告' : '原生宣告');
-        lines.push('交叉核验：<code>IPPure</code> ' + esc(ippTags.join(' · ')));
-      }
-      if (sc) {
-        const blOk = sc.listedCount === 0;
-        const blTxt = blOk
-          ? '0 / ' + sc.totalBlacklists + ' 库命中 (全部通过 ✓)'
-          : sc.listedCount + ' / ' + sc.totalBlacklists + ' 命中 (' + sc.listedNames.join(', ') + ')';
-        lines.push('RBL 黑名单：' + colorSpan(blTxt, blOk ? COLORS.success : COLORS.danger, true));
-      }
 
-      if (p) {
-        const f = p.flags;
-        const tags = [];
-        if (f.datacenter) tags.push(colorSpan('IDC机房', COLORS.warning, true));
-        if (f.vpn) tags.push(colorSpan('VPN特征', COLORS.warning, true));
-        if (f.proxy || (pc && pc.proxy)) tags.push(colorSpan('公开代理', COLORS.danger, true));
-        if (f.abuser) tags.push(colorSpan('历史滥用', COLORS.danger, true));
-        if (f.tor) tags.push(colorSpan('Tor出口', COLORS.danger, true));
-        if (f.crawler) tags.push(colorSpan('爬虫标记', COLORS.warning, true));
-        if (f.mobile) tags.push(colorSpan('移动蜂窝', COLORS.success, true));
-        lines.push(
-          '风险画像：' +
-            (tags.length > 0 ? tags.join(' · ') : colorSpan('零风险标记 ✓', COLORS.success, true))
-        );
+      // 4. 风险
+      const f = (p && p.flags) || {};
+      const riskTags = [];
+      if (f.datacenter || (pc && pc.type === 'Hosting') || l.hosting) {
+        riskTags.push(colorSpan('机房托管', COLORS.warning, false));
+      }
+      if (f.vpn || f.proxy || (pc && (pc.proxy || pc.type === 'VPN')) || l.proxy) {
+        riskTags.push(colorSpan('代理/VPN', COLORS.danger, true));
+      }
+      if (f.tor || (pc && pc.type === 'TOR')) {
+        riskTags.push(colorSpan('Tor 节点', COLORS.danger, true));
+      }
+      if (f.abuser || (pc && pc.type === 'Compromised')) {
+        riskTags.push(colorSpan('滥用记录', COLORS.danger, true));
+      }
+      if (f.crawler) {
+        riskTags.push(colorSpan('爬虫标记', COLORS.warning, false));
+      }
+      detailRows.push(
+        renderKVRow(
+          '风险',
+          riskTags.length > 0 ? riskTags.join(' · ') : colorSpan('无代理 / VPN / 滥用标记', COLORS.success, false),
+          COL_W
+        )
+      );
+
+      // 5. 黑名单
+      if (sc) {
+        const blHtml =
+          sc.listedCount === 0
+            ? colorSpan('未命中', COLORS.success, false) +
+              ' <span style="color:' +
+              COLORS.muted +
+              '">(0 / ' +
+              sc.totalBlacklists +
+              ')</span>'
+            : colorSpan('命中 ' + sc.listedCount + ' 项: ' + sc.listedNames.join(', '), COLORS.danger, true);
+        detailRows.push(renderKVRow('黑名单', blHtml, COL_W));
       }
     } else {
-      lines.push('');
-      lines.push('<b>▸ 风控核验结果</b>');
-      if (pc) {
-        lines.push(
-          'ProxyCheck：' +
-            colorSpan(
-              pc.typeZh + (pc.risk !== null ? ' · 风险值 ' + pc.risk + '/100' : ''),
-              pc.proxy ? COLORS.warning : COLORS.cyan,
-              true
-            )
-        );
-      } else {
-        lines.push(colorSpan('风控数据库响应超时，请稍后重试或调大超时时间', COLORS.warning, false));
-      }
+      detailRows.push(colorSpan('风控接口响应超时，请稍后重试', COLORS.warning, false));
     }
 
-    lines.push('');
-    lines.push(renderFooterNote(probe));
-    return wrapSheetBodyHTML(lines.join('<br>'));
+    return wrapSheetBodyHTML(topLines.join('<br>') + SHEET_HR + detailRows.join('<br>'));
   }
 
   function formatUnlockRow(item) {
-    const icon =
-      item.state === 'yes'
-        ? '✅'
-        : item.state === 'partial'
-          ? '⚠️'
-          : item.state === 'no'
-            ? '❌'
-            : '➖';
     const col =
       item.state === 'yes'
         ? COLORS.success
@@ -3883,52 +4334,40 @@
           : item.state === 'no'
             ? COLORS.danger
             : COLORS.muted;
-    const padded = (item.name + '       ').slice(0, 8);
-    return icon + ' <code>' + esc(padded) + '</code> ' + colorSpan(item.text, col, item.state === 'yes');
+    return renderKVRow(item.name, colorSpan(item.text, col, item.state === 'yes'), '5.2em');
   }
 
   /**
-   * 视图 3：🎬 流媒体与 AI 解锁检测
+   * 视图 3：流媒体与解锁检测 (MODE=unlock) —— 分组简明一屏展示，无底部小字
    */
-  function renderUnlockSheetHTML({ nodeName, nodeInfo, probe }) {
+  function renderUnlockSheetHTML({ nodeName, probe }) {
     const l = probe.landing || {};
-    const flag = getFlagEmoji(l.countryCode);
-    const lines = renderCompactHeader(nodeName, nodeInfo, '');
-
+    const displayTitle = nodeName || '当前出口';
+    const aiRows = (probe.aiItems || []).map(formatUnlockRow);
+    const mediaRows = (probe.mediaItems || []).map(formatUnlockRow);
     const allItems = [].concat(probe.aiItems || [], probe.mediaItems || []);
     const passCount = allItems.filter((x) => x.state === 'yes' || x.state === 'partial').length;
 
-    if (l.ip) {
-      lines.push(
-        '落地出口：<code>' +
-          esc(maskIPString(l.ip, CFG.maskIP)) +
-          '</code> · ' +
-          flag +
-          ' ' +
-          esc(l.country || l.countryCode || '') +
-          ' · 解锁 <b>' +
-          passCount +
-          '/' +
-          allItems.length +
-          '</b>'
-      );
-    }
+    const subSegs = [];
+    if (l.ip) subSegs.push(esc(maskIPString(l.ip, CFG.maskIP)));
+    const loc = formatCompactLocation(l) || l.countryCode || '';
+    if (loc) subSegs.push(esc(loc));
+    subSegs.push('解锁 ' + passCount + ' / ' + allItems.length);
 
-    lines.push('');
-    lines.push('<b>▸ AI 大模型解锁</b>');
-    (probe.aiItems || []).forEach((it) => lines.push(formatUnlockRow(it)));
+    const topLines = [
+      '<b>' + esc(displayTitle) + '</b>',
+      '<span style="font-size:12.5px;color:' + COLORS.muted + '">' + subSegs.join(' · ') + '</span>',
+    ];
 
-    lines.push('');
-    lines.push('<b>▸ 国际流媒体解锁</b>');
-    (probe.mediaItems || []).forEach((it) => lines.push(formatUnlockRow(it)));
+    const bodySections = [];
+    if (aiRows.length > 0) bodySections.push(aiRows.join('<br>'));
+    if (mediaRows.length > 0) bodySections.push(mediaRows.join('<br>'));
 
-    lines.push('');
-    lines.push(renderFooterNote(probe));
-    return wrapSheetBodyHTML(lines.join('<br>'));
+    return wrapSheetBodyHTML(topLines.join('<br>') + SHEET_HR + bodySections.join(SHEET_SUB_HR));
   }
 
   // ============================================================================
-  // 10. Safari 浏览器网页卡片 / JSON 接口 (http://net-lsp-x.com)
+  // 10. 网页诊断面板 / JSON 接口 (http://net-lsp-x.com)
   // ============================================================================
 
   function parseQueryFromURL(rawURL) {
@@ -3955,10 +4394,11 @@
   }
 
   function renderWebPortalHTML(domestic, entrance, infoProbe, purity, targetNode) {
-    const l = infoProbe.landing;
-    const cf = infoProbe.cfTrace;
+    const l = infoProbe.landing || {};
+    const cf = infoProbe.cfTrace || null;
     const flag = getFlagEmoji(l.countryCode || '');
-    const geo = deduplicateGeoParts([l.country, l.region, l.city]).join(' ');
+    const geo = formatCompactLocation(l) || l.countryCode || '-';
+    const landISP = simplifyISPName(l.isp, l.org, l.countryCode);
     const effectiveName = targetNode || (entrance && entrance.leafNode) || '';
     const linkInfo = classifyLinkType({
       nodeInfo: null,
@@ -3972,80 +4412,62 @@
     });
     const topo = buildTopologyHops({ domestic, entrance, probe: infoProbe });
     const hasEnt =
-      entrance && entrance.status === 'ok' && (entrance.entranceIP || entrance.entranceHost);
-    const entGeoText =
-      hasEnt && entrance.geo
-        ? [
-            entrance.geo.isPrivate ? '🏠' : getFlagEmoji(entrance.geo.countryCode),
-            deduplicateGeoParts([entrance.geo.region || entrance.geo.country, entrance.geo.city]).join(''),
-            entrance.geo.ispDisplay || entrance.geo.isp || entrance.geo.org,
-            entrance.geo.asn ? '[' + entrance.geo.asn + ']' : '',
-          ]
-            .filter(Boolean)
-            .join(' ')
-        : '';
+      entrance &&
+      entrance.status === 'ok' &&
+      (entrance.entranceIP || entrance.entranceHost) &&
+      entrance.entranceIP !== l.ip;
+    const entSummary = hasEnt ? formatEntranceSummary(entrance.geo) : '';
     const bgp = infoProbe.bgp;
-    const bgpRole = resolveBGPRoleLabel(linkInfo.code);
+    const bgpText = bgp ? bgp.compactText || formatBGPCompactSummary(bgp) : '';
+    const warpActive = cf && (cf.warp === 'on' || cf.warp === 'plus');
     return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>节点全能诊断 · v${VERSION}</title>
+<title>节点诊断面板 · v${VERSION}</title>
 <style>
-  :root { --bg:#f4f6fb; --card:#fff; --text:#111827; --sub:#6b7280; --border:#e5e7eb; --accent:#3b82f6; }
+  :root { --bg:#f5f5f7; --card:#fff; --text:#1d1d1f; --sub:#6e6e73; --border:#e5e5ea; --accent:#007aff; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#0b0f19; --card:#151b2b; --text:#f3f4f6; --sub:#9ca3af; --border:#263047; --accent:#60a5fa; }
+    :root { --bg:#000; --card:#1c1c1e; --text:#f5f5f7; --sub:#8e8e93; --border:#2c2c2e; --accent:#0a84ff; }
   }
   * { box-sizing:border-box; }
-  body { margin:0; padding:20px 16px 40px; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif; }
-  .wrap { max-width:560px; margin:0 auto; }
-  .hero { margin-bottom:16px; }
-  .hero h1 { font-size:20px; margin:0 0 4px; }
+  body { margin:0; padding:20px 16px 36px; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif; }
+  .wrap { max-width:520px; margin:0 auto; }
+  .hero { margin-bottom:14px; }
+  .hero h1 { font-size:19px; margin:0 0 4px; }
   .hero p { margin:0; font-size:13px; color:var(--sub); }
-  .card { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:15px 18px; margin-bottom:12px; }
-  .card h2 { margin:0 0 10px; font-size:13px; color:var(--accent); letter-spacing:0.04em; }
-  .row { display:flex; justify-content:space-between; gap:12px; padding:6px 0; border-bottom:1px dashed var(--border); font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px 16px; margin-bottom:12px; }
+  .row { display:flex; justify-content:space-between; gap:12px; padding:6px 0; border-bottom:1px solid var(--border); font-size:14px; }
   .row:last-child { border-bottom:none; }
   .k { color:var(--sub); flex-shrink:0; }
-  .v { font-weight:600; text-align:right; word-break:break-all; }
-  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; background:rgba(59,130,246,0.1); padding:2px 6px; border-radius:6px; font-size:13px; }
-  .foot { text-align:center; font-size:12px; color:var(--sub); margin-top:14px; }
+  .v { font-weight:500; text-align:right; word-break:break-all; }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; }
+  .foot { text-align:center; font-size:12px; color:var(--sub); margin-top:12px; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="hero">
-    <h1>🌐 节点网络与纯净度诊断</h1>
-    <p>${esc(targetNode ? '指定节点：' + targetNode : '当前活跃代理实时检测')} · ${infoProbe.elapsedMs} ms</p>
+    <h1>节点诊断面板</h1>
+    <p>${esc(targetNode ? '节点：' + targetNode : '当前活跃连接')}</p>
   </div>
   <div class="card">
-    <h2>🔀 代理链路总览</h2>
-    <div class="row"><span class="k">链路类型</span><span class="v" style="color:${linkInfo.color}">${esc(linkInfo.badge)}${linkInfo.detail ? ` <span style="font-weight:400;color:var(--sub)">(${esc(linkInfo.detail)})</span>` : ''}</span></div>
-    ${claimWarning ? `<div class="row"><span class="k">名称核验</span><span class="v" style="color:${COLORS.warning}">⚠️ ${esc(claimWarning)}</span></div>` : ''}
-    <div class="row"><span class="k">链路走向</span><span class="v">${esc(topo.plain)}</span></div>
-    ${hasEnt ? `<div class="row"><span class="k">拨号入口</span><span class="v"><code>${esc(maskIPString(entrance.entranceIP || entrance.entranceHost, CFG.maskIP))}</code>${entGeoText ? ' · ' + esc(entGeoText) : ''}</span></div>` : ''}
+    <div class="row"><span class="k">链路</span><span class="v" style="color:${linkInfo.color}">${esc(linkInfo.badge)}</span></div>
+    ${topo.hopCount >= 2 ? `<div class="row"><span class="k">路径</span><span class="v">${esc(topo.plain)}</span></div>` : ''}
+    ${domestic && domestic.ip ? `<div class="row"><span class="k">直连</span><span class="v"><code>${esc(maskIPString(domestic.ip, CFG.maskIP))}</code>${domestic.fullTag ? ' · ' + esc(domestic.fullTag) : ''}</span></div>` : ''}
+    ${hasEnt ? `<div class="row"><span class="k">入口</span><span class="v"><code>${esc(maskIPString(entrance.entranceIP || entrance.entranceHost, CFG.maskIP))}</code>${entSummary ? ' · ' + esc(entSummary) : ''}</span></div>` : ''}
+    <div class="row"><span class="k">落地</span><span class="v"><code>${esc(maskIPString(l.ip, CFG.maskIP))}</code> · ${flag} ${esc(geo)}${landISP || l.asn ? ' · ' + esc([landISP, l.asn].filter(Boolean).join(' ')) : ''}</span></div>
+    ${bgpText ? `<div class="row"><span class="k">线路</span><span class="v">${esc(bgpText)}</span></div>` : ''}
+    ${warpActive ? `<div class="row"><span class="k">WARP</span><span class="v">已启用${cf.colo ? ' (' + esc(cf.colo) + ')' : ''}</span></div>` : ''}
+    ${claimWarning ? `<div class="row"><span class="k">提示</span><span class="v" style="color:${COLORS.warning}">${esc(claimWarning)}</span></div>` : ''}
   </div>
-  ${domestic && domestic.ip ? `<div class="card"><h2>🇨🇳 本地直连</h2>
-    <div class="row"><span class="k">直连 IP</span><span class="v"><code>${esc(maskIPString(domestic.ip, CFG.maskIP))}</code></span></div>
-    <div class="row"><span class="k">归属地</span><span class="v">${esc([domestic.location, domestic.isp].filter(Boolean).join(' '))}</span></div>
+  ${purity ? `<div class="card">
+    ${purity.lineageLabel || purity.broadcastText ? `<div class="row"><span class="k">属性</span><span class="v">${esc([purity.lineageLabel, purity.broadcastText].filter(Boolean).join(' · '))}</span></div>` : ''}
+    ${purity.hasDualTypes ? `<div class="row"><span class="k">类型</span><span class="v">${esc('ASN ' + purity.asnTypeText + ' · 运营 ' + purity.companyTypeText)}</span></div>` : ''}
+    <div class="row"><span class="k">评分</span><span class="v">${Math.max(0, 100 - purity.riskIndex)} / 100</span></div>
   </div>` : ''}
-  <div class="card">
-    <h2>${flag} 代理落地与边缘</h2>
-    <div class="row"><span class="k">落地 IPv4</span><span class="v"><code>${esc(maskIPString(l.ip, CFG.maskIP))}</code></span></div>
-    <div class="row"><span class="k">位置</span><span class="v">${flag} ${esc(geo || l.countryCode || '-')}</span></div>
-    <div class="row"><span class="k">运营商</span><span class="v">${esc([l.asn, l.isp || l.org].filter(Boolean).join(' '))}</span></div>
-    ${bgp ? `<div class="row"><span class="k">${esc(bgpRole)}</span><span class="v">${esc(bgp.gradeLabel)}</span></div>` : ''}
-    ${bgp && bgp.upstreams && bgp.upstreams.length > 0 ? `<div class="row"><span class="k">${bgp.aggregator ? '穿透上游' : '直连上游'}</span><span class="v">${esc(bgp.upstreams.slice(0, 4).map((u) => u.display).join(' · '))}</span></div>` : ''}
-    ${cf ? `<div class="row"><span class="k">CF 边缘 / WARP</span><span class="v"><code>${esc(cf.colo + (cf.coloCity ? '·' + cf.coloCity : ''))}</code> · WARP ${esc(cf.warp)}</span></div>` : ''}
-  </div>
-  ${purity ? `<div class="card"><h2>🛡️ 纯净度评估</h2>
-    <div class="row"><span class="k">线路血统</span><span class="v">${esc(purity.lineageLabel)}</span></div>
-    <div class="row"><span class="k">双维属性</span><span class="v">${esc(purity.asnTypeText + ' / ' + purity.companyTypeText)}</span></div>
-    ${purity.broadcastText ? `<div class="row"><span class="k">归属判定</span><span class="v">${esc(purity.broadcastText)}</span></div>` : ''}
-    <div class="row"><span class="k">纯净指数</span><span class="v">${Math.max(0, 100 - purity.riskIndex)} / 100</span></div>
-  </div>` : ''}
-  <div class="foot">支持 ?node=节点名 指定任意节点或 ?format=json 输出 JSON</div>
+  <div class="foot">支持 ?node=节点名 指定节点或 ?format=json 输出 JSON</div>
 </div>
 </body>
 </html>`;
@@ -4100,7 +4522,7 @@
       const domestic = await domesticPromise;
       const infoProbe = probeWrap.probe;
       const entrance = probeWrap.entrance;
-      const purity = await queryPurityIPAPI(infoProbe.landing.ip, targetNode);
+      const purity = await queryPurityWithFallback(infoProbe.landing.ip, targetNode);
       const effectiveName = targetNode || (entrance && entrance.leafNode) || '';
       const linkType = classifyLinkType({
         nodeInfo: null,
@@ -4153,23 +4575,23 @@
         response: {
           status: 500,
           headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-          body: '网络诊断失败: ' + String((e && e.message) || e),
+          body: '诊断请求失败: ' + String((e && e.message) || e),
         },
       });
     }
   }
 
   // ============================================================================
-  // 11. 多客户端交互入口：节点长按 / Loon 仪表盘直测 / 模块面板 / 网络切换事件
+  // 11. 多客户端交互入口：节点长按 / Loon 仪表盘直测 / 模块面板 / 网络切换通知
   // ============================================================================
 
   function getSheetTitleByMode(mode) {
     const titleMap = {
-      info: '节点链路与入口查询',
-      purity: '节点纯净度深度检测',
-      unlock: '流媒体与 AI 解锁检测',
+      info: '节点链路查询',
+      purity: '节点纯净度检测',
+      unlock: '流媒体与解锁检测',
     };
-    return titleMap[mode] || '节点网络信息查询';
+    return titleMap[mode] || '节点信息查询';
   }
 
   function renderByMode(mode, ctx) {
@@ -4206,7 +4628,7 @@
           nodeName ||
           (res.entrance && res.entrance.leafNode) ||
           resolveActiveRoutingContext().leafNode ||
-          '当前活跃出口';
+          '当前出口';
         const html = renderByMode(mode, {
           nodeName: displayNode,
           nodeInfo,
@@ -4219,14 +4641,11 @@
         safeDone({
           title: sheetTitle,
           htmlMessage: wrapSheetBodyHTML(
-            '<b>▍查询失败</b><br>' +
-              '目标节点：' +
-              colorSpan(nodeName || '当前活跃出口', COLORS.primary, true) +
-              '<br>原因说明：' +
-              colorSpan(String((err && err.message) || err), COLORS.danger, false) +
-              '<br><br><span style="color:' +
-              COLORS.muted +
-              '">💡 请检查该节点是否有效连通，或在插件参数中适当调大超时时间。</span>'
+            '<b>' +
+              esc(nodeName || '当前出口') +
+              '</b>' +
+              SHEET_HR +
+              colorSpan('查询失败：' + String((err && err.message) || err), COLORS.danger, false)
           ),
         });
       }
@@ -4262,14 +4681,14 @@
         safeDone({
           title: sheetTitle,
           htmlMessage: wrapSheetBodyHTML(
-            '<b>▍查询失败</b><br>' +
-              '目标节点：' +
-              colorSpan(nodeName, COLORS.primary, true) +
-              '<br>原因说明：' +
-              colorSpan(String(fallbackErr.message || fallbackErr), COLORS.danger, false) +
-              '<br><br><span style="color:' +
+            '<b>' +
+              esc(nodeName) +
+              '</b>' +
+              SHEET_HR +
+              colorSpan('查询失败：' + String(fallbackErr.message || fallbackErr), COLORS.danger, false) +
+              '<br><span style="color:' +
               COLORS.muted +
-              '">💡 建议开启「模块」页顶部的「HTTPS 解密」开关实现零切换直测。</span>'
+              ';font-size:12.5px">请开启模块页顶部的「HTTPS 解密」开关后重试。</span>'
           ),
         });
         return;
@@ -4280,7 +4699,8 @@
           title: sheetTitle,
           htmlMessage: wrapSheetBodyHTML(
             colorSpan(probe.error, COLORS.warning, true) +
-              '<br><br>1. 推荐：开启「模块」页顶部 <b>HTTPS 解密</b> 开关（零切换直测）。<br>2. 或在模块「设置」开启 <b>自动临时切换测速</b>。'
+              SHEET_HR +
+              '请开启模块页顶部 <b>HTTPS 解密</b> 开关，或在设置中开启 <b>自动临时切换测速</b>。'
           ),
         });
         return;
@@ -4378,7 +4798,6 @@
       const probe = probeWrap.probe;
       const entrance = probeWrap.entrance;
       const l = probe.landing;
-      const cf = probe.cfTrace;
       const activeNode = (entrance && entrance.leafNode) || routing.leafNode || '';
       const linkInfo = classifyLinkType({
         nodeInfo: null,
@@ -4390,45 +4809,37 @@
       if (modeInfo) lines.push('模式：' + modeInfo);
       lines.push('链路：' + linkInfo.badge + (activeNode ? ' · ' + activeNode : ''));
       if (domestic && domestic.ip) {
-        lines.push(
-          '直连：' +
-            maskIPString(domestic.ip, CFG.maskIP) +
-            ' (' +
-            [domestic.location, domestic.isp].filter(Boolean).join(' ') +
-            ')'
-        );
+        const domDesc = domestic.fullTag || [domestic.location, domestic.isp].filter(Boolean).join(' ');
+        lines.push('直连：' + maskIPString(domestic.ip, CFG.maskIP) + (domDesc ? ' · ' + domDesc : ''));
       }
       if (entrance && entrance.status === 'ok' && entrance.entranceIP && entrance.entranceIP !== l.ip) {
-        const eg = entrance.geo;
-        const eTxt = eg
-          ? [eg.city || eg.region || eg.country, eg.ispDisplay || eg.isp, eg.asn]
-              .filter(Boolean)
-              .join(' ')
-          : '';
-        lines.push('入口：' + maskIPString(entrance.entranceIP, CFG.maskIP) + (eTxt ? ' (' + eTxt + ')' : ''));
+        const eTxt = formatEntranceSummary(entrance.geo);
+        lines.push('入口：' + maskIPString(entrance.entranceIP, CFG.maskIP) + (eTxt ? ' · ' + eTxt : ''));
       }
-      const flag = getFlagEmoji(l.countryCode);
-      const geo = deduplicateGeoParts([l.country, l.city]).join(' ');
-      lines.push('落地：' + maskIPString(l.ip, CFG.maskIP) + ' (' + flag + ' ' + (geo || l.countryCode || '-') + ')');
-      lines.push('网络：' + [l.asn, l.isp || l.org].filter(Boolean).join(' ') + (cf && cf.colo ? ' · CF-' + cf.colo : ''));
+      const geo = formatCompactLocation(l) || l.countryCode || '-';
+      const isp = simplifyISPName(l.isp, l.org, l.countryCode);
+      const landProvider = [isp, l.asn].filter(Boolean).join(' ');
+      lines.push(
+        '落地：' +
+          maskIPString(l.ip, CFG.maskIP) +
+          ' · ' +
+          geo +
+          (landProvider ? ' · ' + landProvider : '')
+      );
       if (probe.bgp) {
-        lines.push(
-          resolveBGPRoleLabel(linkInfo.code) +
-            '：' +
-            probe.bgp.gradeShort +
-            (probe.bgp.shortNames ? ' · ' + probe.bgp.shortNames : '')
-        );
+        const bgpText = probe.bgp.compactText || formatBGPCompactSummary(probe.bgp);
+        if (bgpText) lines.push('线路：' + bgpText);
       }
 
       safeDone({
-        title: '当前网络出口信息',
+        title: '网络出口信息',
         content: lines.join('\n'),
         icon: 'globe.asia.australia',
         'icon-color': '#10B981',
       });
     } catch (e) {
       safeDone({
-        title: '当前网络出口信息',
+        title: '网络出口信息',
         content: '查询失败：' + String((e && e.message) || e),
         icon: 'exclamationmark.triangle',
         'icon-color': '#EF4444',
@@ -4484,7 +4895,7 @@
           /cloudflare/i.test(String(landing.isp || '') + ' ' + String(landing.org || ''));
         const cf = isLandingCF ? await queryCloudflareTrace(undefined).catch(() => null) : null;
         const bgp = await queryBGPUpstreams(landIP, undefined, CACHE_TTL_BG_MS).catch(() => null);
-        const purity = await queryPurityIPAPI(
+        const purity = await queryPurityWithFallback(
           landIP,
           undefined,
           Math.min(CFG.timeoutMs, 3800),
@@ -4500,19 +4911,19 @@
         const topo = buildTopologyHops({ domestic, entrance, probe });
 
         const flag = getFlagEmoji(cc);
-        const geo = deduplicateGeoParts([landing.country, landing.city]).join(' ') || cc || '未知地区';
-        const regionLabel = landing.country || geo || cc;
+        const geo = formatCompactLocation(landing) || cc || '未知地区';
+        const regionLabel = COUNTRY_CODE_ZH_MAP[cc] || landing.country || geo;
 
         const domChanged = Boolean(prev && prev.domIP && domIP && prev.domIP !== domIP);
         const landChanged = Boolean(prev && prev.landIP && landIP && prev.landIP !== landIP);
 
-        let titleText = '🌐 网络出口已更新 · ' + flag + ' ' + regionLabel;
+        let titleText = '网络出口已更新 · ' + flag + ' ' + regionLabel;
         if (!prev || (!prev.domIP && !prev.landIP)) {
-          titleText = '🌐 网络出口已就绪 · ' + flag + ' ' + regionLabel;
+          titleText = '网络出口已就绪 · ' + flag + ' ' + regionLabel;
         } else if (domChanged && !landChanged) {
-          titleText = '🌐 网络环境已切换 · ' + flag + ' ' + regionLabel;
+          titleText = '网络环境已切换 · ' + flag + ' ' + regionLabel;
         } else if (!domChanged && landChanged) {
-          titleText = '🌐 代理出口已更新 · ' + flag + ' ' + regionLabel;
+          titleText = '代理出口已更新 · ' + flag + ' ' + regionLabel;
         }
 
         const uncapturedCodes = new Set([
@@ -4523,65 +4934,35 @@
         ]);
         const showLinkBadge = !uncapturedCodes.has(linkInfo.code);
         const subtitleText = showLinkBadge
-          ? '🔀 ' + linkInfo.badge + (topo && topo.plain ? ' ｜ ' + topo.plain : '')
-          : '🔀 ' + ((topo && topo.plain) || linkInfo.badge);
+          ? linkInfo.badge + (topo.hopCount >= 2 ? ' · ' + topo.plain : '')
+          : (topo.hopCount >= 2 ? topo.plain : linkInfo.badge);
 
-        const exitLines = [];
-        exitLines.push(flag + ' 落地：' + maskIPString(landIP, CFG.maskIP) + ' (' + geo + ')');
-        const asnText = [landing.asn, landing.isp || landing.org].filter(Boolean).join(' ');
-        if (asnText) exitLines.push('🏢 归属：' + asnText);
-        if (bgp) {
-          exitLines.push(
-            '🛣️ ' +
-              resolveBGPRoleLabel(linkInfo.code) +
-              '：' +
-              bgp.gradeShort +
-              (bgp.shortNames ? ' · ' + bgp.shortNames : '')
-          );
-        }
-
-        if (purity) {
-          const cleanLineage = String(purity.lineageLabel || '')
-            .replace(/^[^\w\u4e00-\u9fa5]+/, '')
-            .trim();
-          const nativeTag =
-            purity.isNativeGeo === true ? '原生 IP' : purity.isNativeGeo === false ? '广播 IP' : '';
-          const scoreTag = '纯净度 ' + Math.max(0, 100 - (purity.riskIndex || 0)) + '/100';
-          const pText = [cleanLineage, nativeTag, scoreTag].filter(Boolean).join(' · ');
-          if (pText) exitLines.push('🛡️ 属性：' + pText);
-        }
-
-        if (cf && (cf.warp === 'on' || cf.warp === 'plus')) {
-          exitLines.push('⚡ 特性：WARP ' + (cf.warp === 'plus' ? 'Plus' : '开启'));
-        }
-
-        const routeLines = [];
-        const routeTarget =
-          routing.rootGroup && activeNode && routing.rootGroup !== activeNode
-            ? routing.rootGroup + ' ➔ ' + activeNode
-            : activeNode || routing.rootGroup;
-        const strategyText = [routing.modeName, routeTarget].filter(Boolean).join(' · ');
-        if (strategyText) routeLines.push('🧭 策略：' + strategyText);
+        const bodyLines = [];
+        const cleanISP = simplifyISPName(landing.isp, landing.org, cc);
+        const landProv = [cleanISP, landing.asn].filter(Boolean).join(' ');
+        bodyLines.push('落地：' + maskIPString(landIP, CFG.maskIP) + ' · ' + geo + (landProv ? ' · ' + landProv : ''));
 
         if (entIP && entIP !== landIP) {
-          const eg = entrance.geo;
-          const eCore = eg
-            ? deduplicateGeoParts([eg.city || eg.region || eg.country, eg.ispDisplay || eg.isp]).join(' ')
-            : '';
-          const eTxt = [eCore, eg && eg.asn].filter(Boolean).join(' · ');
-          routeLines.push('🚀 入口：' + maskIPString(entIP, CFG.maskIP) + (eTxt ? ' (' + eTxt + ')' : ''));
+          const eTxt = formatEntranceSummary(entrance.geo);
+          bodyLines.push('入口：' + maskIPString(entIP, CFG.maskIP) + (eTxt ? ' · ' + eTxt : ''));
         }
-
+        if (bgp) {
+          const bgpText = bgp.compactText || formatBGPCompactSummary(bgp);
+          if (bgpText) bodyLines.push('线路：' + bgpText);
+        }
+        if (purity && (purity.lineageLabel || purity.isNativeGeo !== null)) {
+          const nativeTag =
+            purity.isNativeGeo === true ? '原生 IP' : purity.isNativeGeo === false ? '广播 IP' : '';
+          const scoreTag = Math.max(0, 100 - (purity.riskIndex || 0)) + ' / 100';
+          const pText = [purity.lineageLabel, nativeTag, scoreTag].filter(Boolean).join(' · ');
+          if (pText) bodyLines.push('纯净：' + pText);
+        }
         if (domIP && domIP !== landIP) {
-          const domTag =
-            (domestic && domestic.shortTag) ||
-            [domestic && domestic.location, domestic && domestic.isp].filter(Boolean).join(' ');
-          routeLines.push('🇨🇳 直连：' + maskIPString(domIP, CFG.maskIP) + (domTag ? ' (' + domTag + ')' : ''));
+          const domTag = domestic && (domestic.fullTag || domestic.shortTag || domestic.location);
+          bodyLines.push('直连：' + maskIPString(domIP, CFG.maskIP) + (domTag ? ' · ' + domTag : ''));
         }
 
-        const bodyText =
-          routeLines.length > 0 ? exitLines.join('\n') + '\n\n' + routeLines.join('\n') : exitLines.join('\n');
-        if (!_scriptSettled) notify(titleText, subtitleText, bodyText);
+        if (!_scriptSettled) notify(titleText, subtitleText, bodyLines.join('\n'));
       }
     } catch (e) {
       log('network-changed error: ' + ((e && e.message) || e));
@@ -4600,7 +4981,7 @@
       if (CFG.mode === 'unlock') {
         budgetMs = Math.min(56000, Math.max(28000, CFG.timeoutMs * 4 + 14000));
       } else if (CFG.mode === 'purity') {
-        budgetMs = Math.min(48000, Math.max(24000, CFG.timeoutMs * 4 + 10000));
+        budgetMs = Math.min(36000, Math.max(18000, CFG.timeoutMs * 3 + 8000));
       } else {
         budgetMs = Math.min(38000, Math.max(20000, CFG.timeoutMs * 3 + 8000));
       }
@@ -4629,7 +5010,7 @@
               ? JSON.stringify({
                   ok: false,
                   fromClashTunnelBridge: true,
-                  error: '节点探测超时（目标节点可能不可用或握手过慢）',
+                  error: '节点探测超时',
                 })
               : '节点探测响应超时，请检查节点连通性后重试',
           },
@@ -4642,14 +5023,11 @@
         safeDone({
           title: sheetTitle,
           htmlMessage: wrapSheetBodyHTML(
-            '<b>▍查询超时已保护退出</b><br>' +
-              '目标节点：' +
-              colorSpan(ctx.nodeName || '当前活跃出口', COLORS.primary, true) +
-              '<br>原因说明：' +
-              colorSpan('节点握手或远端接口响应超过安全时限，已自动中止探测', COLORS.warning, false) +
-              '<br><br><span style="color:' +
-              COLORS.muted +
-              '">💡 请检查该节点是否能正常连通，或稍后重试。</span>'
+            '<b>' +
+              esc(ctx.nodeName || '当前出口') +
+              '</b>' +
+              SHEET_HR +
+              colorSpan('节点握手或远端接口超时，请检查节点连通性后重试。', COLORS.warning, false)
           ),
         });
         return;
@@ -4661,7 +5039,7 @@
       }
 
       safeDone({
-        title: '当前网络出口信息',
+        title: '网络出口信息',
         content: '查询超时，请检查当前网络或代理连通性后重试',
         icon: 'exclamationmark.triangle',
         'icon-color': '#F59E0B',
@@ -4723,6 +5101,8 @@
       COLORS,
       CF_COLO_MAP,
       CF_COLO_CC_MAP,
+      COUNTRY_CODE_ZH_MAP,
+      CN_PLACE_ZH_MAP,
       CN_BGP_CLOUD_ASN_MAP,
       CLOUD_CORP_ASN_GROUPS,
       GA_DEDICATED_DOMAIN_RE,
@@ -4733,11 +5113,18 @@
       detectHostClient,
       computeHttpClientTimeout,
       buildOutboundOpts,
+      normalizeCNPlace,
+      formatCompactLocation,
       normalizeCNISP,
       normalizeEntranceISP,
+      simplifyISPName,
+      formatProtocolName,
+      formatShortIPv6,
       parseIPAPIIs,
+      parseIPInfoWidget,
       parseIPPure,
       parseBGPState,
+      formatBGPCompactSummary,
       isIPv4Literal,
       isIPv6Literal,
       isPrivateLANIP,
