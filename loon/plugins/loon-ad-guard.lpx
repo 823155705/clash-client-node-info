@@ -1,0 +1,96 @@
+#!name=全局开屏与广告联盟拦截 (Loon 原生轻量版)
+#!desc=专为 Loon 定制的纯内联轻量级全局去广告插件（免 MitM 解密、零证书依赖、零远程规则集开销）。精准拦截穿山甲、优量汇(广点通)、百青藤、快手联盟、阿里妈妈、科大讯飞及 Google Ads / AppLovin / UnityAds / IronSource 等国内外主流开屏与广告联盟 SDK。
+#!openUrl=
+#!author=Kelee[https://github.com/luestr] & Contributors
+#!tag=去广告, 开屏拦截, 隐私保护
+#!system=iOS,iPadOS,macOS,tvOS
+#!system_version=
+#!loon_version=3.5.1(983)
+#!homepage=https://github.com/823155705/clash-client-node-info
+#!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Advertising.png
+#!date=2026-11-17
+
+[Rule]
+# 高置信度广告联盟关键词直拦
+DOMAIN-KEYWORD, pangolin-sdk-toutiao, REJECT
+DOMAIN-KEYWORD, mobads, REJECT
+DOMAIN-KEYWORD, adsmind, REJECT
+
+# 字节跳动 穿山甲 (Pangolin) 与巨量引擎开屏广告
+DOMAIN-SUFFIX, pangolin-sdk-toutiao.com, REJECT
+DOMAIN-SUFFIX, pangolin-sdk-toutiao-b.com, REJECT
+DOMAIN-SUFFIX, pangolin-sdk-toutiao1.com, REJECT
+DOMAIN-SUFFIX, pglstatp-toutiao.com, REJECT
+DOMAIN-SUFFIX, pangolin.snssdk.com, REJECT
+DOMAIN-SUFFIX, ad.toutiao.com, REJECT
+DOMAIN-SUFFIX, ad.zijieapi.com, REJECT
+DOMAIN, is.snssdk.com, REJECT
+DOMAIN, bds.snssdk.com, REJECT
+
+# 腾讯 优量汇 / 广点通 (GDT) 与微信通用广告网关
+DOMAIN-SUFFIX, gdt.qq.com, REJECT
+DOMAIN-SUFFIX, e.qq.com, REJECT
+DOMAIN, adsmind.gdtimg.com, REJECT
+DOMAIN, adsmind.ugdtimg.com, REJECT
+DOMAIN, pgdt.gtimg.cn, REJECT
+DOMAIN, pgdt.ugdtimg.com, REJECT
+DOMAIN, splashqqlive.gtimg.com, REJECT
+DOMAIN, wa.gtimg.com, REJECT
+DOMAIN, wxsnsdy.wxs.qq.com, REJECT
+DOMAIN, wxsnsdythumb.wxs.qq.com, REJECT
+
+# 百度 百青藤 (MobAds) 广告联盟
+DOMAIN, mobads.baidu.com, REJECT
+DOMAIN, mobads-logs.baidu.com, REJECT
+DOMAIN, mobads-pre-config.cdn.bcebos.com, REJECT
+DOMAIN, wn.pos.baidu.com, REJECT
+DOMAIN, cbjs.baidu.com, REJECT
+DOMAIN, als.baidu.com, REJECT
+DOMAIN-SUFFIX, cpro.baidu.com, REJECT
+DOMAIN-SUFFIX, pos.baidu.com, REJECT
+
+# 快手广告联盟 / 阿里妈妈 (Tanx) / 高德 / 讯飞 / 第三方聚合联盟
+DOMAIN, open.e.kuaishou.com, REJECT
+DOMAIN, gdfp.gifshow.com, REJECT
+DOMAIN-SUFFIX, adukwai.com, REJECT
+DOMAIN-SUFFIX, adkwai.com, REJECT
+DOMAIN-SUFFIX, tanx.com, REJECT
+DOMAIN-SUFFIX, alimama.com, REJECT
+DOMAIN, optimus-ads.amap.com, REJECT
+DOMAIN, optimus-ads.amap.com.w.alikunlun.com, REJECT
+DOMAIN-SUFFIX, voiceads.cn, REJECT
+DOMAIN-SUFFIX, rayjump.com, REJECT
+DOMAIN-SUFFIX, mobvista.com, REJECT
+DOMAIN-SUFFIX, anythinktech.com, REJECT
+DOMAIN-SUFFIX, sigmob.cn, REJECT
+DOMAIN-SUFFIX, beizi.biz, REJECT
+
+# 国内内容平台独立开屏与信息流广告域名（微博 / 知乎 / 小红书 / 网易云）
+DOMAIN, sdkapp.uve.weibo.com, REJECT
+DOMAIN-SUFFIX, ad.weibo.com, REJECT
+DOMAIN, appcloud2.in.zhihu.com, REJECT
+DOMAIN, sugar.zhihu.com, REJECT
+DOMAIN, ads-img-qc.xhscdn.com, REJECT
+DOMAIN, ads-video-qc.xhscdn.com, REJECT
+DOMAIN, t-ads.xiaohongshu.com, REJECT
+DOMAIN, iadmat.nosdn.127.net, REJECT
+DOMAIN, iadmusicmat.music.126.net, REJECT
+DOMAIN, iadmusicmatvideo.music.126.net, REJECT
+DOMAIN, g1.163.com, REJECT
+
+# 国际主流移动广告与归因追踪 SDK (Google Ads / AppLovin / UnityAds / IronSource)
+DOMAIN-SUFFIX, doubleclick.net, REJECT
+DOMAIN-SUFFIX, googleadservices.com, REJECT
+DOMAIN-SUFFIX, googlesyndication.com, REJECT
+DOMAIN-SUFFIX, ads.youtube.com, REJECT
+DOMAIN-SUFFIX, adservice.google.com, REJECT
+DOMAIN-SUFFIX, app-measurement.com, REJECT
+DOMAIN-SUFFIX, applovin.com, REJECT
+DOMAIN-SUFFIX, applvn.com, REJECT
+DOMAIN-SUFFIX, unityads.unity3d.com, REJECT
+DOMAIN-SUFFIX, vungle.com, REJECT
+DOMAIN-SUFFIX, chartboost.com, REJECT
+DOMAIN-SUFFIX, ironsrc.com, REJECT
+DOMAIN-SUFFIX, inmobi.com, REJECT
+DOMAIN-SUFFIX, adcolony.com, REJECT
+DOMAIN-SUFFIX, tapjoy.com, REJECT

@@ -1,0 +1,17 @@
+#!name=外部链接直跳解锁 (可莉 Loon 原生精修版)
+#!desc=移植自可莉插件仓库「微信外部链接解锁 / QQ链接解锁」，扩展支持知乎、微博、CSDN、掘金、简书外链直跳。采用纯 JS Base64 / URL-safe Base64 解码引擎，自动跳过「即将离开应用」安全拦截中转页，毫秒级 302 直达目标网页（需开启 MitM 并信任证书）。
+#!openUrl=
+#!author=Kelee[https://github.com/luestr] & Contributors
+#!tag=外链解锁, 微信直跳, 体验优化
+#!system=iOS,iPadOS,macOS,tvOS
+#!system_version=
+#!loon_version=3.5.1(983)
+#!homepage=https://github.com/823155705/clash-client-node-info
+#!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Link.png
+#!date=2026-11-17
+
+[Script]
+request if ${url} ~= /^https?:\/\/(weixin110\.qq\.com\/cgi-bin\/mmspamsupport-bin\/newredirectconfirmcgi|c\.pc\.qq\.com\/(middlem|ios|index|pc)\.html|link\.zhihu\.com\/\?|sinaurl\.cn\/|link\.csdn\.net\/\?|link\.juejin\.cn\/\?|www\.jianshu\.com\/go-wild\?)/i then script("https://raw.githubusercontent.com/823155705/clash-client-node-info/main/plugins/kelee-link-unlock.js?v=3.0.0") with tag="外部链接直跳解锁", timeout=10
+
+[MitM]
+hostname = weixin110.qq.com, c.pc.qq.com, link.zhihu.com, sinaurl.cn, link.csdn.net, link.juejin.cn, www.jianshu.com
