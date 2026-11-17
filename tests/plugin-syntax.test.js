@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 跨客户端插件规范与附属脚本沙箱自动化校验套件 (v3.0.0)
+ * 跨客户端插件规范与附属脚本沙箱自动化校验套件 (v3.1.0)
  * 运行方式: node tests/plugin-syntax.test.js
  */
 'use strict';
@@ -11,7 +11,6 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const ROOT = path.resolve(__dirname, '..');
-const REPO_RAW_PREFIX = 'https://raw.githubusercontent.com/823155705/clash-client-node-info/main/';
 
 const LOON_ALLOWED_SECTIONS = new Set([
   'Argument',
@@ -192,6 +191,12 @@ function validateLoonLpxContent(content, label = '<inline>') {
         errors.push(`${label}:${lineNo} [Argument] 声明格式错误: ${trimmed}`);
       } else {
         declaredArgs.add(argMatch[1]);
+        const restTokens = splitTopLevelCSV(argMatch[3]);
+        for (const tok of restTokens) {
+          if (/^desc\s*=/i.test(tok)) {
+            errors.push(`${label}:${lineNo} [Argument] 含冗余 desc 小字说明: ${trimmed}`);
+          }
+        }
       }
     } else if (currentSection === 'Rule') {
       const parts = splitTopLevelCSV(trimmed);
@@ -332,7 +337,7 @@ function validateLoonLpxContent(content, label = '<inline>') {
   ];
   for (const k of requiredMeta) {
     if (!meta.has(k)) {
-      errors.push(`${label} 缺少可莉/Loon 标准元数据字段 #!${k}=`);
+      errors.push(`${label} 缺少 Loon 标准元数据字段 #!${k}=`);
     }
   }
   if (!meta.get('name')) errors.push(`${label} #!name 不能为空`);
@@ -344,12 +349,69 @@ function validateLoonLpxContent(content, label = '<inline>') {
   return { errors, meta, declaredArgs };
 }
 
+/**
+ * 校验 Clash-Client .plugin 中 [Panel] script-name 与 [Script] tag 的严格对齐关系
+ */
+function validateClashPanelScriptTags(content, label = '<inline>') {
+  const errors = [];
+  const panelScriptNames = [];
+  const scriptTags = new Set();
+  let currentSection = null;
+
+  const lines = content.split(/\r?\n/);
+  for (let idx = 0; idx < lines.length; idx++) {
+    const lineNo = idx + 1;
+    const trimmed = lines[idx].trim();
+    if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//') || trimmed.startsWith(';')) {
+      continue;
+    }
+    const secMatch = trimmed.match(/^\[([^\]]+)\]$/);
+    if (secMatch) {
+      currentSection = secMatch[1];
+      continue;
+    }
+    if (currentSection === 'Panel') {
+      const eq = trimmed.indexOf('=');
+      if (eq <= 0) {
+        errors.push(`${label}:${lineNo} [Panel] 语法错误: ${trimmed}`);
+        continue;
+      }
+      const kvParts = splitTopLevelCSV(trimmed.slice(eq + 1));
+      let foundScriptName = null;
+      for (const kv of kvParts) {
+        const m = kv.match(/^script-name\s*=\s*(.+)$/);
+        if (m) foundScriptName = m[1].trim().replace(/^"|"$/g, '');
+      }
+      if (!foundScriptName) {
+        errors.push(`${label}:${lineNo} [Panel] 缺少 script-name 属性: ${trimmed}`);
+      } else {
+        panelScriptNames.push({ lineNo, scriptName: foundScriptName });
+      }
+    } else if (currentSection === 'Script') {
+      const kvParts = splitTopLevelCSV(trimmed);
+      for (const kv of kvParts) {
+        const m = kv.match(/^tag\s*=\s*(.+)$/);
+        if (m) scriptTags.add(m[1].trim().replace(/^"|"$/g, ''));
+      }
+    }
+  }
+
+  for (const { lineNo, scriptName } of panelScriptNames) {
+    if (!scriptTags.has(scriptName)) {
+      errors.push(
+        `${label}:${lineNo} [Panel] script-name="${scriptName}" 未匹配任何 [Script] tag（当前可用 tag: ${[...scriptTags].join(', ') || '无'}）`
+      );
+    }
+  }
+  return { errors, panelScriptNames, scriptTags };
+}
+
 console.log('=== 1. 仓库插件清单完整性校验 ===');
 
 const lpxFiles = walkFiles(ROOT, (f) => f.endsWith('.lpx')).map((f) => path.relative(ROOT, f));
 const pluginFiles = walkFiles(ROOT, (f) => f.endsWith('.plugin')).map((f) => path.relative(ROOT, f));
 
-runTest('发现全部 5 款 Loon 原生插件 (.lpx) 与 5 款 Clash-Client 插件 (.plugin)', () => {
+runTest('发现全部 5 款 Loon 原生插件 (.lpx) 与 5 款 Clash-Client 插件 (.plugin)，文件名保持不变', () => {
   assert.deepEqual(lpxFiles, [
     'loon/plugins/kelee-google-tf-unlock.lpx',
     'loon/plugins/kelee-httpdns-guard.lpx',
@@ -366,17 +428,19 @@ runTest('发现全部 5 款 Loon 原生插件 (.lpx) 与 5 款 Clash-Client 插�
   ]);
 });
 
-console.log('\n=== 2. Loon (.lpx) 官方 v2 规范与可莉标准逐项审计 ===');
+console.log('\n=== 2. Loon (.lpx) 官方 v2 规范与参数精简审计 ===');
 
 for (const rel of lpxFiles) {
-  runTest(`Loon 插件语法与元数据合规: ${rel}`, () => {
+  runTest(`Loon 插件语法、元数据精简与无冗余参数 desc: ${rel}`, () => {
     const content = fs.readFileSync(path.join(ROOT, rel), 'utf8');
-    const { errors } = validateLoonLpxContent(content, rel);
+    const { errors, meta } = validateLoonLpxContent(content, rel);
     assert.deepEqual(errors, [], `发现违规项:\n  - ${errors.join('\n  - ')}`);
+    assert.equal(meta.get('author'), '823155705');
+    assert.equal(meta.get('homepage'), 'https://github.com/823155705/clash-client-node-info');
   });
 }
 
-runTest('校验器反向自测：能精准拦截 [Panel] / [Remote Rule] / RULE-SET / %APPEND% / 末尾302 / 未声明变量', () => {
+runTest('校验器反向自测：能精准拦截冗余 desc、[Panel] 失配、[Remote Rule] / RULE-SET / %APPEND% / 末尾302 / 未声明变量', () => {
   const badSample = [
     '#!name=Bad',
     '#!desc=Bad',
@@ -390,7 +454,7 @@ runTest('校验器反向自测：能精准拦截 [Panel] / [Remote Rule] / RULE-
     '#!icon=https://example.com/a.png',
     '#!date=2026-11-17',
     '[Argument]',
-    'DECLARED_SW = switch, true, tag = 开关',
+    'DECLARED_SW = switch, true, tag = 开关, desc = 这是一段多余的小字说明',
     '[Panel]',
     '[Remote Rule]',
     '[Rule]',
@@ -404,6 +468,7 @@ runTest('校验器反向自测：能精准拦截 [Panel] / [Remote Rule] / RULE-
   ].join('\n');
 
   const { errors } = validateLoonLpxContent(badSample, 'bad.lpx');
+  assert.ok(errors.some((e) => e.includes('冗余 desc')));
   assert.ok(errors.some((e) => e.includes('[Panel]')));
   assert.ok(errors.some((e) => e.includes('[Remote Rule]')));
   assert.ok(errors.some((e) => e.includes('RULE-SET')));
@@ -412,11 +477,28 @@ runTest('校验器反向自测：能精准拦截 [Panel] / [Remote Rule] / RULE-
   assert.ok(errors.some((e) => e.includes('script-update-interval')));
   assert.ok(errors.some((e) => e.includes('%APPEND%')));
   assert.ok(errors.some((e) => e.includes('img-url')));
+
+  const badClashPanel = [
+    '[Panel]',
+    '当前网络出口信息 = script-name=旧菜单名称, title="当前网络出口信息"',
+    '[Script]',
+    'generic script-path=https://example.com/a.js, tag=节点链路查询',
+  ].join('\n');
+  const panelRes = validateClashPanelScriptTags(badClashPanel, 'bad.plugin');
+  assert.ok(panelRes.errors.some((e) => e.includes('script-name="旧菜单名称"')));
 });
 
-runTest('xream-loon-node-info.lpx 核心配置专项核验（5路 v2 脚本 + 7原生参数 + 8直连规则）', () => {
+runTest('xream-loon-node-info.lpx 核心配置专项核验（v3.1.0 + 精简菜单 tag + 7 项零 desc 参数 + 8 直连规则）', () => {
   const content = fs.readFileSync(path.join(ROOT, 'xream-loon-node-info.lpx'), 'utf8');
-  const { declaredArgs } = validateLoonLpxContent(content, 'xream-loon-node-info.lpx');
+  const { meta, declaredArgs } = validateLoonLpxContent(content, 'xream-loon-node-info.lpx');
+
+  assert.equal(meta.get('name'), '节点检测工具');
+  assert.equal(
+    meta.get('desc'),
+    '长按节点查询入口与落地链路、IP 纯净度、流媒体及 AI 解锁状态。详细说明见 GitHub 主页。'
+  );
+  assert.equal(meta.get('openUrl'), 'https://github.com/823155705/clash-client-node-info');
+  assert.equal(meta.get('tag'), '节点检测');
 
   assert.deepEqual(
     [...declaredArgs],
@@ -431,6 +513,10 @@ runTest('xream-loon-node-info.lpx 核心配置专项核验（5路 v2 脚本 + 7�
     ]
   );
 
+  // 确保 [Argument] 中完全不含 desc =
+  const argBlock = content.split('[Argument]')[1].split('[Host]')[0];
+  assert.equal(/\bdesc\s*=/i.test(argBlock), false, '.lpx [Argument] 不得包含任何冗余 desc');
+
   // 确保未混入 Clash-Client 专属控制器参数
   assert.ok(!content.includes('CONTROLLER_PORT'));
   assert.ok(!content.includes('CONTROLLER_SECRET'));
@@ -442,30 +528,32 @@ runTest('xream-loon-node-info.lpx 核心配置专项核验（5路 v2 脚本 + 7�
     assert.match(content, new RegExp(`DOMAIN,\\s*${domain.replace(/\./g, '\\.')},\\s*DIRECT`));
   }
 
-  // 5 条脚本全部指向 v3.0.0 通用入口产物
+  // 5 条脚本全部指向 v3.1.0 通用入口产物且菜单名已精简
   const scriptMatches = content.match(
-    /script\("https:\/\/raw\.githubusercontent\.com\/823155705\/clash-client-node-info\/main\/xream-node-info\.js\?v=3\.0\.0"/g
+    /script\("https:\/\/raw\.githubusercontent\.com\/823155705\/clash-client-node-info\/main\/xream-node-info\.js\?v=3\.1\.0"/g
   );
   assert.equal(scriptMatches && scriptMatches.length, 5);
-  assert.match(content, /tag="节点链路与入口查询",\s*img_url="globe\.asia\.australia\.system",\s*timeout=45/);
-  assert.match(content, /tag="节点纯净度深度检测",\s*img_url="shield\.lefthalf\.filled\.system",\s*timeout=50/);
-  assert.match(content, /tag="流媒体与 AI 解锁检测",\s*img_url="play\.tv\.system",\s*timeout=60/);
-  assert.match(content, /with enable=\$\{NOTIFY_ON_CHANGE\},\s*tag="网络切换出口通知",\s*timeout=45/);
-  assert.match(content, /request if \$\{url\} ~= \/\^https\?:\\\/\\\/net-lsp-x\\\.com\/i then script\(/);
+  assert.match(content, /tag="节点链路查询",\s*img_url="globe\.asia\.australia\.system",\s*timeout=45/);
+  assert.match(content, /tag="节点纯净度检测",\s*img_url="shield\.lefthalf\.filled\.system",\s*timeout=50/);
+  assert.match(content, /tag="流媒体与解锁检测",\s*img_url="play\.tv\.system",\s*timeout=60/);
+  assert.match(content, /with enable=\$\{NOTIFY_ON_CHANGE\},\s*tag="网络切换通知",\s*timeout=45/);
+  assert.match(content, /with tag="网页诊断面板",\s*timeout=45/);
 });
 
-runTest('4 款可莉 Loon 实用插件专项核验（无 RULE-SET、HTTPDNS 双栈+正则、TF requires_body snake_case）', () => {
+runTest('4 款 Loon 实用插件专项核验（元数据精简、无 RULE-SET、HTTPDNS 双栈+正则、v3.1.0 引用）', () => {
   const adGuard = fs.readFileSync(path.join(ROOT, 'loon/plugins/loon-ad-guard.lpx'), 'utf8');
+  assert.match(adGuard, /^#!name=开屏与广告拦截$/m);
   assert.match(adGuard, /DOMAIN-KEYWORD,/);
   assert.match(adGuard, /DOMAIN-SUFFIX,/);
   assert.ok(!adGuard.includes('RULE-SET'));
 
   const httpdns = fs.readFileSync(path.join(ROOT, 'loon/plugins/kelee-httpdns-guard.lpx'), 'utf8');
+  assert.match(httpdns, /^#!name=HTTPDNS 拦截$/m);
   assert.match(httpdns, /DOMAIN-KEYWORD,\s*httpdns,\s*REJECT/);
   assert.match(httpdns, /IP-CIDR,\s*203\.107\.1\.0\/24,\s*REJECT,\s*no-resolve/);
   assert.match(httpdns, /IP-CIDR6,\s*[0-9a-fA-F:]+\/\d+,\s*REJECT,\s*no-resolve/);
   assert.match(httpdns, /URL-REGEX,\s*"\^https\?:\\\/\\\//);
-  // 确保不误杀本套件使用的阿里 DoH 223.5.5.5 / 223.6.6.6 标准 JSON 接口
+  // 确保不误杀本仓库使用的阿里 DoH 223.5.5.5 / 223.6.6.6 标准 JSON 接口
   const urlRegexLine = httpdns.split(/\r?\n/).find((l) => l.trim().startsWith('URL-REGEX,'));
   const urlPattern = splitTopLevelCSV(urlRegexLine)[1].replace(/^"|"$/g, '');
   const rawIpHttpdnsRe = new RegExp(urlPattern);
@@ -475,24 +563,35 @@ runTest('4 款可莉 Loon 实用插件专项核验（无 RULE-SET、HTTPDNS 双�
   assert.equal(rawIpHttpdnsRe.test('http://223.6.6.6/resolve?name=example.com&type=A'), false);
 
   const linkUnlock = fs.readFileSync(path.join(ROOT, 'loon/plugins/kelee-link-unlock.lpx'), 'utf8');
-  assert.match(linkUnlock, /plugins\/kelee-link-unlock\.js\?v=3\.0\.0/);
-  assert.match(linkUnlock, /with tag="外部链接直跳解锁",\s*timeout=10/);
+  assert.match(linkUnlock, /^#!name=外链直跳$/m);
+  assert.match(linkUnlock, /plugins\/kelee-link-unlock\.js\?v=3\.1\.0/);
+  assert.match(linkUnlock, /with tag="外链直跳",\s*timeout=10/);
 
   const googleTf = fs.readFileSync(path.join(ROOT, 'loon/plugins/kelee-google-tf-unlock.lpx'), 'utf8');
+  assert.match(googleTf, /^#!name=Google 与 TestFlight 解锁$/m);
   assert.match(googleTf, /DOMAIN,\s*testflight\.apple\.com,\s*PROXY/);
   assert.match(googleTf, /redirect\(307,\s*"https:\/\/www\.google\.com"\)/);
   assert.match(googleTf, /redirect\(307,\s*"https:\/\/maps\.google\.com"\)/);
-  assert.match(googleTf, /plugins\/kelee-tf-unlock\.js\?v=3\.0\.0"\)\s*with requires_body=true/);
+  assert.match(googleTf, /plugins\/kelee-tf-unlock\.js\?v=3\.1\.0"\)\s*with requires_body=true/);
 });
 
-console.log('\n=== 3. Clash-Client (.plugin) 兼容性与 v3.0.0 升级校验 ===');
+console.log('\n=== 3. Clash-Client (.plugin) 兼容性、Panel 对齐与 v3.1.0 精简校验 ===');
 
 for (const rel of pluginFiles) {
-  runTest(`Clash-Client 插件结构与参数引用校验: ${rel}`, () => {
+  runTest(`Clash-Client 插件结构、参数引用与 [Panel] script-name 对齐校验: ${rel}`, () => {
     const content = fs.readFileSync(path.join(ROOT, rel), 'utf8');
     for (const key of ['name', 'desc', 'author', 'homepage', 'icon', 'date']) {
       assert.match(content, new RegExp(`^#!${key}=.+`, 'm'), `${rel} 缺少 #!${key}`);
     }
+    assert.match(content, /^#!author=823155705$/m, `${rel} #!author 应统一为 823155705`);
+    assert.match(
+      content,
+      /^#!homepage=https:\/\/github\.com\/823155705\/clash-client-node-info$/m,
+      `${rel} #!homepage 不一致`
+    );
+
+    const { errors: panelErrors } = validateClashPanelScriptTags(content, rel);
+    assert.deepEqual(panelErrors, [], `${rel} [Panel] 与 [Script] tag 不匹配:\n  - ${panelErrors.join('\n  - ')}`);
 
     // 收集 [Argument] 声明并核对 argument="..." 中的 {ARG} 占位符
     const declared = new Set();
@@ -517,28 +616,69 @@ for (const rel of pluginFiles) {
   });
 }
 
-runTest('xream-clash-node-info.plugin v3.0.0 平滑升级专项核验（CLIENT=clash + 前后台双产物隔离 + 8直连规则）', () => {
+runTest('xream-clash-node-info.plugin v3.1.0 专项核验（Panel 严格对齐 + 仅 CONTROLLER_SECRET 保留 desc + 双产物隔离）', () => {
   const content = fs.readFileSync(path.join(ROOT, 'xream-clash-node-info.plugin'), 'utf8');
-  assert.match(content, /10类零忽悠证据分级拓扑与名称验伪/);
-  assert.match(content, /四源风控/);
-  assert.match(content, /#!date=2026-11-17/);
+  assert.match(content, /^#!name=节点检测工具$/m);
+  assert.match(
+    content,
+    /^#!desc=长按节点查询入口与落地链路、IP 纯净度、流媒体及 AI 解锁状态。详细说明见 GitHub 主页。$/m
+  );
+  assert.match(content, /^#!date=2026-11-17$/m);
+
+  // [Argument] 仅允许 CONTROLLER_SECRET 保留一条必要 desc
+  const argLines = content
+    .split('[Argument]')[1]
+    .split('[General]')[0]
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#'));
+  const linesWithDesc = argLines.filter((l) => /\bdesc\s*=/i.test(l));
+  assert.equal(linesWithDesc.length, 1, '仅允许 CONTROLLER_SECRET 保留 desc 提示');
+  assert.match(linesWithDesc[0], /^CONTROLLER_SECRET\s*=/);
+
+  const { panelScriptNames, scriptTags } = validateClashPanelScriptTags(
+    content,
+    'xream-clash-node-info.plugin'
+  );
+  assert.equal(panelScriptNames.length, 1);
+  assert.equal(panelScriptNames[0].scriptName, '节点链路查询');
+  assert.deepEqual(
+    [...scriptTags],
+    ['节点直测桥接', '节点链路查询', '节点纯净度检测', '流媒体与解锁检测', '网络切换通知']
+  );
 
   for (const domain of DOMESTIC_DIRECT_DOMAINS) {
     assert.match(content, new RegExp(`DOMAIN,${domain.replace(/\./g, '\\.')},DIRECT`));
   }
 
-  const fgRefs = content.match(/xream-clash-node-info\.js\?v=3\.0\.0/g) || [];
-  const bgRefs = content.match(/xream-clash-node-bg\.js\?v=3\.0\.0/g) || [];
-  assert.equal(fgRefs.length, 3, '3 个前台 generic 菜单必须继续指向 xream-clash-node-info.js?v=3.0.0');
-  assert.equal(bgRefs.length, 2, '2 个后台脚本必须继续指向 xream-clash-node-bg.js?v=3.0.0');
+  const fgRefs = content.match(/xream-clash-node-info\.js\?v=3\.1\.0/g) || [];
+  const bgRefs = content.match(/xream-clash-node-bg\.js\?v=3\.1\.0/g) || [];
+  assert.equal(fgRefs.length, 3, '3 个前台 generic 菜单必须指向 xream-clash-node-info.js?v=3.1.0');
+  assert.equal(bgRefs.length, 2, '2 个后台脚本必须指向 xream-clash-node-bg.js?v=3.1.0');
 
   const clientHints = content.match(/argument="CLIENT=clash&MODE=/g) || [];
   assert.equal(clientHints.length, 5, '全部 5 条脚本均须显式注入 CLIENT=clash&');
 });
 
+runTest('README.md 与插件头部去 AI 味及克制致谢核验', () => {
+  const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+  const bannedBuzzwords = ['全能', '深度融合', '零忽悠', '一等公民', '闭环', '正交', '解耦', '赋能'];
+  for (const word of bannedBuzzwords) {
+    assert.ok(!readme.includes(word), `README.md 不应包含夸张词藻 "${word}"`);
+  }
+
+  // 第三方仓库致谢仅出现在「致谢与开源协议」章节，正文前部不重复堆砌
+  const [bodyPart, ackPart] = readme.split('## 致谢与开源协议');
+  assert.ok(ackPart, 'README.md 应包含「## 致谢与开源协议」章节');
+  assert.ok(!bodyPart.includes('xream/scripts') && !bodyPart.includes('可莉'), '正文前部不应重复提及第三方作者');
+  assert.ok(ackPart.includes('https://github.com/xream/scripts'), '致谢章节应包含 xream/scripts 链接');
+  assert.ok(ackPart.includes('https://github.com/luestr/ProxyResource'), '致谢章节应包含 luestr/ProxyResource 链接');
+  assert.ok(ackPart.includes('GPL-3.0'), '致谢章节应声明 GPL-3.0 协议');
+});
+
 console.log('\n=== 4. 外链脚本引用对齐与无 atob 纯 JavaScriptCore 沙箱仿真测试 ===');
 
-runTest('所有 .lpx / .plugin 引用的仓库远程脚本均带 ?v=3.0.0 且本地已存在文件均可无错编译', () => {
+runTest('所有 .lpx / .plugin 引用的仓库远程脚本均带 ?v=3.1.0 且本地已存在文件均可无错编译', () => {
   const allPluginContents = [...lpxFiles, ...pluginFiles].map((rel) => ({
     rel,
     content: fs.readFileSync(path.join(ROOT, rel), 'utf8'),
@@ -551,7 +691,8 @@ runTest('所有 .lpx / .plugin 引用的仓库远程脚本均带 ?v=3.0.0 且本
     );
     for (const m of urlMatches) {
       const fullTarget = m[1];
-      assert.match(fullTarget, /\?v=3\.0\.0$/, `${rel} 脚本引用未统一升级至 ?v=3.0.0: ${fullTarget}`);
+      if (!fullTarget.includes('.js')) continue;
+      assert.match(fullTarget, /\?v=3\.1\.0$/, `${rel} 脚本引用未统一升级至 ?v=3.1.0: ${fullTarget}`);
       referencedRelScripts.add(fullTarget.split('?')[0]);
     }
   }

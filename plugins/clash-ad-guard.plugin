@@ -1,12 +1,12 @@
-#!name=全局开屏与广告联盟拦截 (轻量免证书版)
-#!desc=专为 Clash-Client iOS 内存模型定制的轻量级全局去广告插件（总权重 < 1000，零内存溢出风险）。精准拦截穿山甲、优量汇(广点通)、百青藤、快手联盟、阿里妈妈及 Google Ads / AppLovin / UnityAds 等国内外主流开屏与广告 SDK 域名，并自动订阅 Sukka 与 Blackmatrix7 精选去广告规则集。无需开启 HTTPS 解密、无需安装信任证书即可直接生效。
-#!author=Contributors
+#!name=开屏与广告拦截
+#!desc=拦截常见国内 App 开屏广告与广告联盟域名。
+#!author=823155705
 #!homepage=https://github.com/823155705/clash-client-node-info
 #!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Advertising.png
 #!date=2026-11-17
 
 [Rule]
-# 字节跳动 穿山甲 (Pangolin) 开屏与激励广告联盟
+# 穿山甲与巨量引擎
 DOMAIN-SUFFIX,pangolin-sdk-toutiao.com,REJECT
 DOMAIN-SUFFIX,pangolin-sdk-toutiao-b.com,REJECT
 DOMAIN-SUFFIX,pangolin-sdk-toutiao1.com,REJECT
@@ -15,7 +15,7 @@ DOMAIN-SUFFIX,ad.toutiao.com,REJECT
 DOMAIN,is.snssdk.com,REJECT
 DOMAIN,bds.snssdk.com,REJECT
 
-# 腾讯 优量汇 / 广点通 (GDT) 与微信通用广告网关
+# 优量汇 / 广点通与微信广告
 DOMAIN-SUFFIX,gdt.qq.com,REJECT
 DOMAIN-SUFFIX,e.qq.com,REJECT
 DOMAIN,adsmind.gdtimg.com,REJECT
@@ -27,7 +27,7 @@ DOMAIN,wa.gtimg.com,REJECT
 DOMAIN,wxsnsdy.wxs.qq.com,REJECT
 DOMAIN,wxsnsdythumb.wxs.qq.com,REJECT
 
-# 百度 百青藤 (MobAds) 广告联盟
+# 百度百青藤
 DOMAIN,mobads.baidu.com,REJECT
 DOMAIN,mobads-logs.baidu.com,REJECT
 DOMAIN,mobads-pre-config.cdn.bcebos.com,REJECT
@@ -36,7 +36,7 @@ DOMAIN,cbjs.baidu.com,REJECT
 DOMAIN-SUFFIX,cpro.baidu.com,REJECT
 DOMAIN-SUFFIX,pos.baidu.com,REJECT
 
-# 快手广告联盟 / 阿里妈妈 (Tanx) / 科大讯飞广告
+# 快手联盟 / 阿里妈妈 / 高德 / 讯飞
 DOMAIN,open.e.kuaishou.com,REJECT
 DOMAIN,gdfp.gifshow.com,REJECT
 DOMAIN-SUFFIX,adukwai.com,REJECT
@@ -46,7 +46,7 @@ DOMAIN,optimus-ads.amap.com,REJECT
 DOMAIN,optimus-ads.amap.com.w.alikunlun.com,REJECT
 DOMAIN-SUFFIX,voiceads.cn,REJECT
 
-# 国内内容平台独立广告域名（微博 / 知乎 / 小红书 / 网易 / B站）
+# 微博 / 知乎 / 小红书 / 网易云广告
 DOMAIN,sdkapp.uve.weibo.com,REJECT
 DOMAIN-SUFFIX,ad.weibo.com,REJECT
 DOMAIN,appcloud2.in.zhihu.com,REJECT
@@ -58,7 +58,7 @@ DOMAIN,iadmat.nosdn.127.net,REJECT
 DOMAIN,iadmusicmat.music.126.net,REJECT
 DOMAIN,g1.163.com,REJECT
 
-# 国际主流移动广告与追踪 SDK (Google Ads / AppLovin / UnityAds / IronSource)
+# 海外常见移动广告 SDK
 DOMAIN-SUFFIX,doubleclick.net,REJECT
 DOMAIN-SUFFIX,googleadservices.com,REJECT
 DOMAIN-SUFFIX,googlesyndication.com,REJECT
@@ -71,6 +71,6 @@ DOMAIN-SUFFIX,vungle.com,REJECT
 DOMAIN-SUFFIX,chartboost.com,REJECT
 DOMAIN-SUFFIX,ironsrc.com,REJECT
 
-# 自动订阅精选轻量规则集（兼容 Clash-Client iOS 40,000 权重上限）
+# 轻量去广告规则集
 RULE-SET,https://ruleset.skk.moe/List/non_ip/reject.conf,REJECT,update-interval=86400
 RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Loon/AdvertisingLite/AdvertisingLite.list,REJECT,update-interval=86400
