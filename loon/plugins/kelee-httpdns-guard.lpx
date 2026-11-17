@@ -1,0 +1,72 @@
+#!name=HTTPDNS 拦截与防绕过 (可莉 Loon 原生精修版)
+#!desc=融合可莉 Block_HTTPDNS.lpx 精华。全方位拦截国内主流 App（微信、淘宝、支付宝、B站、抖音、百度、网易、美团、京东、快手、小红书、知乎等）私自发起的域名型与裸 IP 双栈 HTTPDNS 请求，强制流量回归 Loon 自身 DNS 与分流引擎，杜绝分流绕过与真实 DNS 泄露（免 MitM 证书即可生效）。
+#!openUrl=
+#!author=Kelee[https://github.com/luestr] & Contributors
+#!tag=HTTPDNS, 防DNS泄露, 分流加固
+#!system=iOS,iPadOS,macOS,tvOS
+#!system_version=
+#!loon_version=3.5.1(983)
+#!homepage=https://github.com/823155705/clash-client-node-info
+#!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Server.png
+#!date=2026-11-17
+
+[Rule]
+# 通用 HTTPDNS 域名关键词与裸 IP HTTPDNS 请求路径正则拦截
+DOMAIN-KEYWORD, httpdns, REJECT
+DOMAIN-KEYWORD, httpsdns, REJECT
+URL-REGEX, "^https?:\/\/((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(:\d+)?\/(\d+\/(d|ss|sign_d|resolve)|v\d+\/resolve)\?", REJECT
+
+# 阿里云 / 淘宝 / 支付宝系 HTTPDNS（IPv4 + IPv6 专线接入段）
+DOMAIN, httpdns.alicdn.com, REJECT
+DOMAIN, httpdns-api.aliyuncs.com, REJECT
+DOMAIN, httpdns-sc.aliyuncs.com, REJECT
+IP-CIDR, 203.107.1.0/24, REJECT, no-resolve
+IP-CIDR6, 2400:3200:2000::/48, REJECT, no-resolve
+
+# 腾讯 / 微信 / DNSPod 移动解析 HTTPDNS（IPv4 + IPv6）
+DOMAIN, dns.weixin.qq.com, REJECT
+DOMAIN, dns.weixin.qq.com.cn, REJECT
+DOMAIN, aedns.weixin.qq.com, REJECT
+IP-CIDR, 119.29.29.98/32, REJECT, no-resolve
+IP-CIDR, 119.29.29.99/32, REJECT, no-resolve
+IP-CIDR, 182.254.116.117/32, REJECT, no-resolve
+IP-CIDR, 182.254.118.119/32, REJECT, no-resolve
+IP-CIDR6, 2402:4e00:1200:ed00::/64, REJECT, no-resolve
+
+# 字节跳动 / 抖音 / 头条 / 火山引擎 HTTPDNS
+DOMAIN, dig.bdurl.net, REJECT
+DOMAIN-SUFFIX, httpdns.volcengineapi.com, REJECT
+
+# 百度系 HTTPDNS
+DOMAIN, httpdns.baidu.com, REJECT
+DOMAIN, httpsdns.baidu.com, REJECT
+DOMAIN, httpdns.baidubce.com, REJECT
+DOMAIN, httpdns.bcelive.com, REJECT
+IP-CIDR, 180.76.76.200/32, REJECT, no-resolve
+
+# 哔哩哔哩 HTTPDNS
+DOMAIN, httpdns.bilivideo.com, REJECT
+
+# 网易 / 云音乐系 HTTPDNS（IPv4 + IPv6）
+DOMAIN, httpdns.n.netease.com, REJECT
+DOMAIN, httpdns.music.163.com, REJECT
+DOMAIN, music.httpdns.c.163.com, REJECT
+DOMAIN, lofter.httpdns.c.163.com, REJECT
+DOMAIN, httpdns.yunxindns.com, REJECT
+IP-CIDR, 59.111.239.61/32, REJECT, no-resolve
+IP-CIDR, 59.111.239.62/32, REJECT, no-resolve
+IP-CIDR6, 240e:928:1400::/48, REJECT, no-resolve
+
+# 美团 / 京东 / 知乎 / 快手 / 微博 / 华为 / OPPO / 小米 HTTPDNS
+DOMAIN, httpdns.meituan.com, REJECT
+DOMAIN, httpdnsmulti.meituan.com, REJECT
+DOMAIN, dns.jd.com, REJECT
+DOMAIN, kuaishou.httpdns.pro, REJECT
+DOMAIN, dns.weibo.cn, REJECT
+DOMAIN, httpdns.c.cdnhwc2.com, REJECT
+DOMAIN, httpdns.ocloud.oppomobile.com, REJECT
+DOMAIN, httpdns.push.oppomobile.com, REJECT
+DOMAIN, resolver.msg.xiaomi.net, REJECT
+IP-CIDR, 103.224.222.208/32, REJECT, no-resolve
+IP-CIDR, 118.89.204.198/32, REJECT, no-resolve
+IP-CIDR6, 2402:db40:5100:1011::5/128, REJECT, no-resolve

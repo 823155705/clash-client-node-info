@@ -1,0 +1,24 @@
+#!name=Google 防送中与 TestFlight 跨区解锁 (可莉 Loon 原生精修版)
+#!desc=融合可莉插件仓库「Google搜索重定向 + TestFlight地区解锁」。采用 Loon v2 原生 307 重定向将 google.cn / g.cn / maps.google.cn 自动跳转至国际版，并解除 TestFlight 安装测试版应用时的 Apple ID 区域商店限制（需开启 MitM 并信任证书）。
+#!openUrl=
+#!author=Kelee[https://github.com/luestr] & Contributors
+#!tag=Google防送中, TestFlight解锁, 跨区增强
+#!system=iOS,iPadOS,macOS,tvOS
+#!system_version=
+#!loon_version=3.5.1(983)
+#!homepage=https://github.com/823155705/clash-client-node-info
+#!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Google_Search.png
+#!date=2026-11-17
+
+[Rule]
+DOMAIN, testflight.apple.com, PROXY
+
+[Rewrite]
+request if ${url} ~= /^https?:\/\/(www\.)?(g|google)\.cn/i then redirect(307, "https://www.google.com")
+request if ${url} ~= /^https?:\/\/(ditu|maps)\.google\.cn/i then redirect(307, "https://maps.google.com")
+
+[Script]
+request if ${url} ~= /^https?:\/\/testflight\.apple\.com\/v\d\/accounts\/[^/]+\/install$/i then script("https://raw.githubusercontent.com/823155705/clash-client-node-info/main/plugins/kelee-tf-unlock.js?v=3.0.0") with requires_body=true, tag="TestFlight区域解锁", timeout=10
+
+[MitM]
+hostname = www.google.cn, google.cn, www.g.cn, g.cn, ditu.google.cn, maps.google.cn, testflight.apple.com

@@ -1,0 +1,47 @@
+#!name=全能节点检测套件 (xream & 可莉多端融合版)
+#!desc=融合 xream 与可莉节点检测方案，原生适配 Loon 零控制器直取入口。长按任意节点支持三项深度检测：① 节点链路与入口查询（直连➔智能EDNS中转入口与ASN➔落地双栈➔10类零忽悠客观拓扑与名称验伪➔RIPE实时BGP骨干➔CF边缘与WARP）；② 节点纯净度深度检测（双ISP原生家宽+BGP互联+四源风控与RBL黑名单审计）；③ 流媒体与 AI 解锁检测（ChatGPT/Claude/Gemini/Netflix/Disney+/YouTube/TikTok/动画疯）。
+#!openUrl=http://net-lsp-x.com
+#!author=xream[https://github.com/xream], Kelee[https://github.com/luestr] & Contributors
+#!tag=节点检测, 链路拓扑, 纯净度, 流媒体解锁
+#!system=iOS,iPadOS,macOS,tvOS
+#!system_version=
+#!loon_version=3.5.1(983)
+#!homepage=https://github.com/823155705/clash-client-node-info
+#!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Global.png
+#!date=2026-11-17
+
+[Argument]
+SHOW_DOMESTIC = switch, true, tag = 显示本地直连对比, desc = 在链路与入口查询中同时展示国内直连 IP 与运营商
+SHOW_ENTRANCE = switch, true, tag = 查询节点中转入口, desc = 原生提取节点接入地址并结合 EDNS 与双源接口解析中转入口 IP 及 ASN
+CHECK_IPV6 = switch, true, tag = 检测节点 IPv6 支持, desc = 检测所选节点是否具备双栈 IPv6 出站能力
+MASK_IP = switch, false, tag = 隐私保护（IP 打码）, desc = 截图分享时自动隐藏 IP 中间网段与入口域名
+NOTIFY_ON_CHANGE = switch, false, tag = 网络环境切换通知, desc = Wi-Fi / 蜂窝网络切换且出口变化时推送结构化通知
+TIMEOUT_SEC = select, "8", "5", "12", "15", tag = 接口超时时间（秒）, desc = 慢速链路或流媒体解锁检测建议设为 8~12 秒
+IPAPI_KEY = input, "", tag = ipapi.is Key（可选）, desc = 留空即可免 Key 使用；高频纯净度检测可填入免费申请的 Key
+
+[Host]
+net-lsp-x.com = 198.51.100.88
+
+[Rule]
+DOMAIN, myip.ipip.net, DIRECT
+DOMAIN, r.inews.qq.com, DIRECT
+DOMAIN, 4.ipw.cn, DIRECT
+DOMAIN, ip.3322.net, DIRECT
+DOMAIN, whois.pconline.com.cn, DIRECT
+DOMAIN, ip.netart.cn, DIRECT
+DOMAIN, api-v3.speedtest.cn, DIRECT
+DOMAIN, rmb.pingan.com.cn, DIRECT
+
+[Script]
+generic then script("https://raw.githubusercontent.com/823155705/clash-client-node-info/main/xream-node-info.js?v=3.0.0", {${SHOW_DOMESTIC}, ${SHOW_ENTRANCE}, ${CHECK_IPV6}, ${MASK_IP}, ${NOTIFY_ON_CHANGE}, ${TIMEOUT_SEC}, ${IPAPI_KEY}}) with tag="节点链路与入口查询", img_url="globe.asia.australia.system", timeout=45
+
+generic then script("https://raw.githubusercontent.com/823155705/clash-client-node-info/main/xream-node-info.js?v=3.0.0", {${SHOW_DOMESTIC}, ${SHOW_ENTRANCE}, ${CHECK_IPV6}, ${MASK_IP}, ${NOTIFY_ON_CHANGE}, ${TIMEOUT_SEC}, ${IPAPI_KEY}}) with tag="节点纯净度深度检测", img_url="shield.lefthalf.filled.system", timeout=50
+
+generic then script("https://raw.githubusercontent.com/823155705/clash-client-node-info/main/xream-node-info.js?v=3.0.0", {${SHOW_DOMESTIC}, ${SHOW_ENTRANCE}, ${CHECK_IPV6}, ${MASK_IP}, ${NOTIFY_ON_CHANGE}, ${TIMEOUT_SEC}, ${IPAPI_KEY}}) with tag="流媒体与 AI 解锁检测", img_url="play.tv.system", timeout=60
+
+network-changed then script("https://raw.githubusercontent.com/823155705/clash-client-node-info/main/xream-node-info.js?v=3.0.0", {${SHOW_DOMESTIC}, ${SHOW_ENTRANCE}, ${CHECK_IPV6}, ${MASK_IP}, ${NOTIFY_ON_CHANGE}, ${TIMEOUT_SEC}, ${IPAPI_KEY}}) with enable=${NOTIFY_ON_CHANGE}, tag="网络切换出口通知", timeout=45
+
+request if ${url} ~= /^https?:\/\/net-lsp-x\.com/i then script("https://raw.githubusercontent.com/823155705/clash-client-node-info/main/xream-node-info.js?v=3.0.0", {${SHOW_DOMESTIC}, ${SHOW_ENTRANCE}, ${CHECK_IPV6}, ${MASK_IP}, ${NOTIFY_ON_CHANGE}, ${TIMEOUT_SEC}, ${IPAPI_KEY}}) with tag="Web诊断面板", timeout=45
+
+[MitM]
+hostname = net-lsp-x.com

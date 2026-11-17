@@ -3,13 +3,14 @@
 #!author=Kelee & Contributors
 #!homepage=https://github.com/823155705/clash-client-node-info
 #!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Google_Search.png
-#!date=2026-11-14
+#!date=2026-11-17
 
 [Rewrite]
 ^https?:\/\/(www\.)?(g|google)\.cn https://www.google.com 302
+^https?:\/\/(ditu|maps)\.google\.cn https://maps.google.com 302
 
 [Script]
-http-request ^https?:\/\/testflight\.apple\.com\/v\d\/accounts\/[^/]+\/install$ script-path=https://raw.githubusercontent.com/823155705/clash-client-node-info/main/plugins/kelee-tf-unlock.js?v=2.0.0, requires-body=true, timeout=10, script-update-interval=86400, tag=TestFlight区域解锁
+http-request ^https?:\/\/testflight\.apple\.com\/v\d\/accounts\/[^/]+\/install$ script-path=https://raw.githubusercontent.com/823155705/clash-client-node-info/main/plugins/kelee-tf-unlock.js?v=3.0.0, requires-body=true, timeout=10, script-update-interval=86400, tag=TestFlight区域解锁
 
 [MITM]
-hostname = www.google.cn, google.cn, www.g.cn, g.cn, testflight.apple.com
+hostname = www.google.cn, google.cn, www.g.cn, g.cn, ditu.google.cn, maps.google.cn, testflight.apple.com
